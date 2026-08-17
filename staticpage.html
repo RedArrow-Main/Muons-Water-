@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Muons Water — Know your water, down to the acre</title>
+<meta name="description" content="Muons Water tells you exactly when and how much to irrigate. Soil moisture, irrigation timing, and drought risk for your county.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Instrument+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --deep:#081C24; --deep2:#0C2731; --panel:#10333F; --panel2:#154050; --line:#24586B;
+  --paper:#E9F1F2; --mut:#8FB3BC;
+  --water:#4FC8F0; --water2:#8FE0FA; --soil:#B08050; --green:#8FD06F;
+  --amber:#F2B441; --red:#E85A3C;
+  --disp:'Anton',Impact,sans-serif; --body:'Instrument Sans',sans-serif; --mono:'Space Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:var(--body);color:var(--paper);overflow-x:hidden;background:var(--deep);
+  background-image:
+   radial-gradient(1000px 560px at 85% -8%, rgba(79,200,240,.13), transparent 55%),
+   radial-gradient(900px 560px at -8% 105%, rgba(176,128,80,.12), transparent 55%)}
+::selection{background:var(--water);color:var(--deep)}
+.waves{position:fixed;inset:0;z-index:0;pointer-events:none}
+.grain{position:fixed;inset:0;z-index:60;pointer-events:none;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E")}
+main,header,.ticker,footer{position:relative;z-index:2}
+.ticker{background:var(--water);color:var(--deep);font-family:var(--mono);font-size:11px;font-weight:700;overflow:hidden;white-space:nowrap;border-bottom:3px solid var(--deep)}
+.ticker .track{display:inline-flex;padding:7px 0;animation:slide 32s linear infinite;will-change:transform}
+.ticker span{padding:0 1.3rem;letter-spacing:.05em}
+@keyframes slide{to{transform:translateX(-50%)}}
+header{position:sticky;top:0;background:rgba(8,28,36,.96);border-bottom:1px solid var(--line);z-index:50}
+.nav{max-width:1180px;margin:0 auto;padding:.9rem 1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.logo{display:flex;align-items:center;gap:.7rem;cursor:pointer}
+.logo .mark{width:34px;height:34px;flex:none}
+.logo .name{font-family:var(--disp);font-size:1.35rem;letter-spacing:.04em;line-height:1}
+.logo .name em{font-style:normal;color:var(--water)}
+.logo .name small{display:block;font-family:var(--mono);font-size:8px;letter-spacing:.3em;color:var(--mut);margin-top:2px}
+.nav-r{display:flex;align-items:center;gap:.8rem}
+.navlink{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--mut);background:none;border:none;cursor:pointer;padding:.5rem .8rem;transition:color .2s}
+.navlink:hover{color:var(--water)}
+.btn{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.08em;cursor:pointer;border-radius:99px;padding:.65rem 1.4rem;border:2px solid var(--deep);transition:transform .18s,box-shadow .18s;text-decoration:none;display:inline-block}
+.btn:hover{transform:translate(-2px,-2px);box-shadow:5px 5px 0 rgba(0,0,0,.4)}
+.btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(0,0,0,.4)}
+.btn.primary{background:var(--water);color:var(--deep);box-shadow:3px 3px 0 rgba(0,0,0,.35)}
+.btn.ghost{background:transparent;color:var(--paper);border-color:var(--line)}
+.btn.big{padding:.9rem 2rem;font-size:13px}
+.userchip{font-family:var(--mono);font-size:11px;color:var(--green);display:flex;align-items:center;gap:.5rem}
+.userchip i{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(143,208,111,.5)}60%{box-shadow:0 0 0 8px rgba(143,208,111,0)}}
+.wrap{max-width:1180px;margin:0 auto;padding:0 1.5rem}
+.view{display:none}
+.view.active{display:block;animation:vin .5s cubic-bezier(.2,.7,.2,1)}
+@keyframes vin{from{opacity:0;transform:translateY(18px)}}
+.rv{opacity:0;transform:translateY(26px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.7,.2,1)}
+.rv.on{opacity:1;transform:none}
+.hero{padding:4rem 0 3.5rem}
+.hero .wrap{display:grid;grid-template-columns:1fr 1.05fr;gap:3.5rem;align-items:center}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.24em;color:var(--water);display:flex;align-items:center;gap:.7rem;margin-bottom:1.4rem}
+.eyebrow i{width:8px;height:8px;border-radius:50%;background:var(--water);animation:pulse2 1.8s infinite}
+@keyframes pulse2{0%,100%{box-shadow:0 0 0 0 rgba(79,200,240,.5)}60%{box-shadow:0 0 0 8px rgba(79,200,240,0)}}
+h1{font-family:var(--disp);font-weight:400;font-size:clamp(3rem,7vw,5.4rem);line-height:.98;text-transform:uppercase;letter-spacing:.01em}
+h1 .w{color:var(--water)} h1 .s{color:var(--soil)}
+.lede{margin:1.6rem 0 2rem;max-width:32rem;font-size:1.08rem;line-height:1.65;color:var(--mut)}
+.lede b{color:var(--paper)}
+.hero-ctas{display:flex;gap:1rem;flex-wrap:wrap}
+.trustline{margin-top:1.4rem;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--mut)}
+.trustline b{color:var(--green)}
+.console{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:12px 12px 0 rgba(0,0,0,.32);overflow:hidden}
+.c-head{display:flex;justify-content:space-between;align-items:center;padding:.9rem 1.2rem;border-bottom:1px dashed var(--line);font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--mut)}
+.c-head b{color:var(--water)}
+.c-pickers{display:flex;gap:.6rem;flex-wrap:wrap;padding:1rem 1.2rem;border-bottom:1px dashed var(--line)}
+select{font-family:var(--mono);font-size:11px;background:var(--panel2);color:var(--paper);border:1px solid var(--line);padding:.55rem .7rem;border-radius:7px;cursor:pointer;flex:1;min-width:110px}
+.c-body{display:grid;grid-template-columns:150px 1fr;gap:1.4rem;padding:1.3rem 1.2rem;align-items:center}
+.scol{display:flex;flex-direction:column;align-items:center}
+.sc-body{position:relative;width:130px;height:250px;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:linear-gradient(180deg,#12333D 0 12px,#3A2C1E 12px)}
+.sc-root{position:absolute;left:0;right:0;border-left:2px dashed rgba(143,208,111,.5);border-right:2px dashed rgba(143,208,111,.5);background:rgba(0,0,0,.16);transition:height .7s cubic-bezier(.2,.7,.2,1)}
+.sc-water{position:absolute;left:4px;right:4px;background:linear-gradient(180deg,var(--water2),var(--water) 45%,#2E9CC4);opacity:.92;transition:top .7s cubic-bezier(.2,.7,.2,1),height .7s cubic-bezier(.2,.7,.2,1),background .4s}
+.sc-water.low{background:linear-gradient(180deg,#F5C563,var(--amber) 45%,#C77E2C)}
+.sc-line{position:absolute;left:0;right:0;border-top:2px solid;transition:top .7s}
+.sc-line span{position:absolute;right:3px;top:-14px;font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;background:rgba(8,28,36,.8);padding:1px 4px;border-radius:3px}
+.sc-line.fc{border-color:var(--water)} .sc-line.fc span{color:var(--water)}
+.sc-line.mad{border-color:var(--amber)} .sc-line.mad span{color:var(--amber)}
+.sc-line.wp{border-color:var(--red)} .sc-line.wp span{color:var(--red)}
+.sc-cap{margin-top:.7rem;font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--mut);text-align:center}
+.reads{display:grid;grid-template-columns:1fr 1fr;gap:.9rem}
+.read{border:1px dashed var(--line);border-radius:9px;padding:.8rem .9rem;transition:border-color .25s,transform .25s}
+.read:hover{border-color:var(--water);transform:translateY(-3px)}
+.read small{font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;color:var(--mut);display:block;margin-bottom:.3rem}
+.read b{font-family:var(--disp);font-weight:400;font-size:1.7rem;letter-spacing:.02em}
+.read .sub{font-family:var(--mono);font-size:9px;color:var(--mut);margin-top:.2rem}
+.read.big b{color:var(--water)}
+.verdict{grid-column:1/-1;transform:rotate(-2deg);border:3px dashed var(--green);color:var(--green);border-radius:10px;padding:.8rem 1.1rem;font-family:var(--disp);font-size:1.3rem;text-transform:uppercase;letter-spacing:.03em;transition:transform .4s cubic-bezier(.34,1.56,.64,1),border-color .3s,color .3s}
+.verdict:hover{transform:rotate(-2deg) scale(1.03)}
+.verdict.hot{border-color:var(--amber);color:var(--amber)}
+.verdict small{display:block;font-family:var(--mono);font-size:9px;font-weight:400;letter-spacing:.08em;margin-top:.35rem;text-transform:none;line-height:1.5}
+.dbadge{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.12em;color:var(--deep);padding:.3rem .7rem;border-radius:4px}
+section{padding:4rem 0}
+.shead{margin-bottom:2.2rem}
+.kick{font-family:var(--mono);font-size:11px;letter-spacing:.24em;color:var(--water);display:block;margin-bottom:.7rem}
+h2{font-family:var(--disp);font-weight:400;font-size:clamp(2rem,4.4vw,3.1rem);text-transform:uppercase;letter-spacing:.01em;line-height:1.05}
+.rule{height:3px;width:74px;background:var(--water);margin-top:1rem}
+.feat{border-top:2px solid var(--line)}
+.frow{display:grid;grid-template-columns:90px 1.1fr .9fr;gap:2rem;padding:1.7rem .5rem;border-bottom:1px solid var(--line);transition:background .25s,transform .25s;align-items:start}
+.frow:hover{background:var(--panel);transform:translateX(8px)}
+.frow .ic{font-family:var(--disp);font-size:2.6rem;line-height:1;color:transparent;-webkit-text-stroke:1.4px var(--water)}
+.frow h3{font-family:var(--disp);font-weight:400;font-size:1.35rem;text-transform:uppercase;margin-bottom:.45rem}
+.frow p{color:var(--mut);line-height:1.6;font-size:.96rem}
+.frow p b{color:var(--paper)}
+.frow .data{font-family:var(--mono);font-size:10.5px;color:var(--water);border:1px dashed var(--line);border-radius:8px;padding:.8rem 1rem;line-height:1.8}
+.frow .data b{color:var(--paper)}
+.save{background:var(--panel);border-top:3px solid var(--soil);border-bottom:3px solid var(--soil)}
+.save .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:2.5rem}
+.snum{transition:transform .25s}
+.snum:hover{transform:translateY(-6px)}
+.snum b{font-family:var(--disp);font-weight:400;font-size:clamp(2.6rem,5vw,4rem);color:var(--water);display:block;line-height:1}
+.snum:nth-child(2) b{color:var(--soil)} .snum:nth-child(3) b{color:var(--green)}
+.snum small{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--mut);display:block;margin-top:.7rem;line-height:1.7}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
+.hstep{padding:0 2rem 0 0}
+.hstep .n{font-family:var(--disp);font-size:3rem;color:transparent;-webkit-text-stroke:1.4px var(--soil);line-height:1}
+.hstep h3{font-family:var(--disp);font-weight:400;font-size:1.25rem;text-transform:uppercase;margin:.6rem 0 .4rem}
+.hstep p{color:var(--mut);line-height:1.6;font-size:.95rem}
+.hstep p b{color:var(--paper)}
+.cta-band{background:var(--panel);border-top:3px solid var(--water);border-bottom:3px solid var(--water)}
+.cta-band .wrap{display:grid;grid-template-columns:1fr auto;gap:3rem;align-items:center}
+.cta-band h2{font-size:clamp(2rem,4.6vw,3.2rem)}
+.cta-band .sub{margin-top:.8rem;color:var(--mut);max-width:30rem;line-height:1.6}
+.auth{padding:4.5rem 0;min-height:70vh;display:flex;align-items:center}
+.auth .wrap{display:grid;grid-template-columns:.9fr 1.1fr;gap:4rem;align-items:center;width:100%}
+.auth-copy h2{font-size:clamp(2.2rem,4.6vw,3.4rem)}
+.auth-copy .sub{margin-top:1rem;color:var(--mut);line-height:1.65;max-width:26rem}
+.auth-copy .points{margin-top:1.6rem}
+.auth-copy .points div{font-family:var(--mono);font-size:11px;color:var(--mut);padding:.5rem 0;border-bottom:1px dashed var(--line);letter-spacing:.04em}
+.auth-copy .points div b{color:var(--green)}
+.form-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:12px 12px 0 rgba(0,0,0,.32);padding:2rem 2.2rem}
+.form-card h3{font-family:var(--disp);font-weight:400;font-size:1.7rem;text-transform:uppercase;margin-bottom:.4rem}
+.form-card .fsub{font-family:var(--mono);font-size:10.5px;color:var(--mut);letter-spacing:.06em;margin-bottom:1.6rem}
+.field{margin-bottom:1.1rem}
+.field label{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--mut);display:block;margin-bottom:.45rem}
+.field input,.field select{width:100%;font-family:var(--body);font-size:15px;background:var(--deep2);color:var(--paper);border:1.5px solid var(--line);border-radius:8px;padding:.8rem 1rem;transition:border-color .2s,box-shadow .2s}
+.field input:focus,.field select:focus{outline:none;border-color:var(--water);box-shadow:0 0 0 3px rgba(79,200,240,.18)}
+.chips{display:flex;gap:.5rem;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:11px;font-weight:700;padding:.55rem 1rem;border-radius:99px;border:1.5px solid var(--line);background:transparent;color:var(--mut);cursor:pointer;transition:all .2s}
+.chip:hover{border-color:var(--water);color:var(--water)}
+.chip.sel{background:var(--water);border-color:var(--water);color:var(--deep)}
+.ferr{font-family:var(--mono);font-size:11px;color:var(--red);margin:.6rem 0;display:none}
+.ferr.show{display:block}
+.fswitch{margin-top:1.2rem;font-family:var(--mono);font-size:11px;color:var(--mut);text-align:center}
+.fswitch button{background:none;border:none;color:var(--water);font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;text-decoration:underline}
+.fnote{margin-top:1rem;font-family:var(--mono);font-size:9px;color:var(--mut);letter-spacing:.04em;line-height:1.6;text-align:center}
+.dash-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:2rem}
+.dash-head h2{font-size:clamp(1.8rem,3.6vw,2.6rem)}
+.dash-head .who{font-family:var(--mono);font-size:11px;color:var(--mut)}
+.dash-head .who b{color:var(--green)}
+.farm-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.6rem 1.8rem;box-shadow:8px 8px 0 rgba(0,0,0,.3)}
+.farm-card .fmeta{display:flex;gap:2rem;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--mut);margin-bottom:1.4rem}
+.farm-card .fmeta b{color:var(--paper)}
+footer{border-top:1px solid var(--line);padding:2.4rem 0}
+.frow2{display:flex;justify-content:space-between;gap:1.5rem;flex-wrap:wrap;align-items:center}
+.disclaimer{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--amber)}
+.brandline{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--mut)}
+.flinks{display:flex;gap:1.4rem;font-family:var(--mono);font-size:10px;letter-spacing:.1em}
+.flinks a{color:var(--mut);text-decoration:none}
+.flinks a:hover{color:var(--water)}
+@media(max-width:960px){
+  .hero .wrap,.auth .wrap,.cta-band .wrap{grid-template-columns:1fr}
+  .save .wrap,.how{grid-template-columns:1fr}
+  .frow{grid-template-columns:1fr;gap:.6rem}
+  .c-body{grid-template-columns:1fr}
+  .scol{margin:0 auto}
+}
+</style>
+</head>
+<body>
+<svg class="waves" width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 1440 900">
+  <g fill="none" stroke="rgba(79,200,240,.05)" stroke-width="1.5">
+    <path d="M0,140 C240,100 480,190 720,150 S1200,80 1440,130"/>
+    <path d="M0,320 C260,280 500,370 740,330 S1220,260 1440,310"/>
+    <path d="M0,500 C240,460 520,550 760,510 S1240,440 1440,490"/>
+    <path d="M0,680 C260,640 500,730 740,690 S1220,620 1440,670"/>
+    <path d="M0,840 C240,800 520,890 760,850 S1240,780 1440,830"/>
+  </g>
+</svg>
+<div class="grain"></div>
+
+<div class="ticker"><div class="track" id="tick"></div></div>
+
+<header><div class="nav">
+  <div class="logo" onclick="go('landing')">
+    <svg class="mark" viewBox="0 0 34 34"><circle cx="17" cy="13" r="8" fill="none" stroke="#4FC8F0" stroke-width="2.5"/><path d="M17 21c0 5-3 8-3 8h6s-3-3-3-8z" fill="#4FC8F0"/><path d="M6 30c4-3 8-3 11 0s7 3 11 0" stroke="#B08050" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>
+    <div class="name">MUONS <em>WATER</em><small>FIELD WATER INTELLIGENCE</small></div>
+  </div>
+  <div class="nav-r" id="navR"></div>
+</div></header>
+
+<main>
+<!-- LANDING -->
+<div class="view active" id="view-landing">
+  <div class="hero"><div class="wrap">
+    <div class="rv">
+      <div class="eyebrow"><i></i>WATER INTELLIGENCE · NE · IA · KS</div>
+      <h1>Know your<br><span class="w">water.</span><br>Down to the <span class="s">acre.</span></h1>
+      <p class="lede">Muons Water reads your soil, the forecast, and your crop — then tells you <b>exactly when to irrigate and exactly how much</b>. No more guessing by the calendar. No more running the pivot "just in case."</p>
+      <div class="hero-ctas">
+        <button class="btn primary big" onclick="go('signup')">CREATE YOUR FARM</button>
+        <button class="btn ghost big" onclick="go('login')">LOG IN</button>
+      </div>
+      <div class="trustline"><b>Free while in beta</b> · county-level water budget · no hardware, no sensors</div>
+    </div>
+    <div class="console rv" style="transition-delay:.15s">
+      <div class="c-head"><span>FIELD WATER BUDGET · <b id="cCountyLbl">CEDAR COUNTY, NE</b></span><span class="dbadge" id="cDrought">USDM D1</span></div>
+      <div class="c-pickers">
+        <select id="pCounty"></select>
+        <select id="pCrop"></select>
+        <select id="pSoil"></select>
+      </div>
+      <div class="c-body">
+        <div class="scol">
+          <div class="sc-body">
+            <div class="sc-root" id="scRoot"></div>
+            <div class="sc-water" id="scWater"></div>
+            <div class="sc-line fc" id="scFC"><span>FIELD CAPACITY</span></div>
+            <div class="sc-line mad" id="scMAD"><span id="scMadLbl">MAD 50%</span></div>
+            <div class="sc-line wp" id="scWP"><span>WILTING PT</span></div>
+          </div>
+          <div class="sc-cap" id="scCap"></div>
+        </div>
+        <div class="reads">
+          <div class="read big"><small>SOIL MOISTURE · ROOT ZONE</small><b id="cMoist">60%</b><div class="sub" id="cSw"></div></div>
+          <div class="read"><small>AVAILABLE WATER</small><b id="cAvail">7.2"</b><div class="sub">root × soil AWC</div></div>
+          <div class="read"><small>CROP USE · ETc</small><b id="cEtc">0.32"/d</b><div class="sub" id="cKc"></div></div>
+          <div class="read"><small>RAIN · NEXT 7 DAYS</small><b id="cRain">0.8"</b><div class="sub">forecast</div></div>
+          <div class="verdict" id="cVerdict"></div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <section><div class="wrap">
+    <div class="shead rv"><span class="kick">WHAT YOU GET</span><h2>A water budget for<br>every field you farm</h2><div class="rule"></div></div>
+    <div class="feat rv">
+      <div class="frow"><div class="ic">01</div>
+        <div><h3>Your soil moisture, in inches</h3><p>Not a vague "dry" or "wet" — <b>inches of water in the root zone</b>, against field capacity and the wilting point, for your county's dominant soil.</p></div>
+        <div class="data">ROOT ZONE <b>36"</b> · AW <b>7.2"</b><br>SW NOW <b>4.3"</b> · DEPLETION <b>40%</b></div></div>
+      <div class="frow"><div class="ic">02</div>
+        <div><h3>The irrigation call — hold or go</h3><p>A clear verdict: <b>when to run the pivot and how many inches to apply</b>, or when to hold because rain is already on the way. The math is shown, every time.</p></div>
+        <div class="data">VERDICT <b>HOLD</b><br>RAIN INBOUND <b>0.8"</b> · RESUME <b>AUG 6</b></div></div>
+      <div class="frow"><div class="ic">03</div>
+        <div><h3>Drought &amp; heat watch</h3><p>The official <b>US Drought Monitor level</b> for your county, a rainfall-deficit index we compute ourselves, and days since your last real rain.</p></div>
+        <div class="data">USDM <b>D1 MODERATE</b><br>SPI-3 <b>−1.4</b> · <b>62</b> DAYS SINCE 1"+ RAIN</div></div>
+      <div class="frow"><div class="ic">04</div>
+        <div><h3>Delivered where you already are</h3><p>Read it on the <b>web dashboard</b>, or get the morning's call as a <b>text message</b> — one of several ways Muons Water reaches you, whichever you prefer.</p></div>
+        <div class="data">WEB DASHBOARD <b>✓</b><br>SMS DIGEST <b>OPTIONAL</b> · 6:30 AM</div></div>
+    </div>
+  </div></section>
+
+  <section class="save"><div class="wrap rv">
+    <div class="snum"><b>2.1M gal</b><small>OF WATER LEFT IN THE GROUND<br>PER SKIPPED PIVOT PASS · QUARTER SECTION</small></div>
+    <div class="snum"><b>$14/ac</b><small>DIESEL + LABOR SAVED<br>EVERY TIME YOU DON'T RUN "JUST IN CASE"</small></div>
+    <div class="snum"><b>5–8 bu/ac</b><small>OF SOYBEAN YIELD PROTECTED<br>BY ONE WELL-TIMED PASS INSTEAD OF A LATE ONE</small></div>
+  </div></section>
+
+  <section><div class="wrap">
+    <div class="shead rv"><span class="kick">HOW IT WORKS</span><h2>Three steps. No sensors.</h2><div class="rule"></div></div>
+    <div class="how rv">
+      <div class="hstep"><div class="n">01</div><h3>Tell us your farm</h3><p>Your <b>county and crops</b>. That's it — no field boundaries, no hardware, nothing to install in the ground.</p></div>
+      <div class="hstep"><div class="n">02</div><h3>We run the water budget</h3><p>Every night, from the <b>forecast, your county's soil maps, and 20 years of rainfall history</b> — the same math agronomists use, made automatic.</p></div>
+      <div class="hstep"><div class="n">03</div><h3>You get the call</h3><p><b>Hold or go, in inches, before you're out the door.</b> Check the working any time on the dashboard.</p></div>
+    </div>
+  </div></section>
+
+  <section class="cta-band"><div class="wrap rv">
+    <div><span class="kick">PUT IT ON YOUR FARM</span>
+      <h2>See your county's<br>water budget today</h2>
+      <p class="sub">Create your farm in under a minute. Your first water budget is waiting before you finish your coffee.</p></div>
+    <button class="btn primary big" onclick="go('signup')">CREATE YOUR FARM →</button>
+  </div></section>
+</div>
+
+<!-- SIGN UP -->
+<div class="view" id="view-signup">
+  <div class="auth"><div class="wrap">
+    <div class="auth-copy rv">
+      <span class="kick">CREATE YOUR FARM</span>
+      <h2>Under a minute.<br>No hardware.</h2>
+      <p class="sub">Tell us where you farm and what you grow. We'll have your first water budget ready before you set the phone down.</p>
+      <div class="points">
+        <div><b>✓</b> &nbsp;County-level soil &amp; forecast data, compiled nightly</div>
+        <div><b>✓</b> &nbsp;Irrigation call in inches — hold or go</div>
+        <div><b>✓</b> &nbsp;Drought &amp; heat watch for your county</div>
+        <div><b>✓</b> &nbsp;Free while in beta · leave anytime</div>
+      </div>
+    </div>
+    <div class="form-card rv" style="transition-delay:.12s">
+      <h3>New farm</h3>
+      <div class="fsub">FIELDS MARKED * ARE REQUIRED</div>
+      <div class="field"><label>YOUR NAME</label><input id="suName" type="text" placeholder="Dan Erickson"></div>
+      <div class="field"><label>PHONE OR EMAIL *</label><input id="suContact" type="text" placeholder="+1 (402) 555-0147"></div>
+      <div class="field"><label>PASSWORD *</label><input id="suPass" type="password" placeholder="At least 6 characters"></div>
+      <div class="field"><label>COUNTY *</label><select id="suCounty"></select></div>
+      <div class="field"><label>CROPS * &nbsp;(TAP ALL THAT APPLY)</label>
+        <div class="chips" id="suCrops">
+          <button class="chip" data-c="corn">CORN</button>
+          <button class="chip" data-c="soy">SOYBEANS</button>
+          <button class="chip" data-c="alfalfa">ALFALFA</button>
+          <button class="chip" data-c="cover">COVER CROP</button>
+        </div></div>
+      <div class="field"><label>ACRES (OPTIONAL)</label><input id="suAcres" type="number" placeholder="640"></div>
+      <div class="ferr" id="suErr"></div>
+      <button class="btn primary big" style="width:100%" onclick="doSignup()">CREATE MY FARM</button>
+      <div class="fswitch">Already farming with us? <button onclick="go('login')">Log in</button></div>
+      <div class="fnote">DEMO STORES YOUR ACCOUNT IN THIS BROWSER ONLY.<br>PRODUCTION USES A CODED, ENCRYPTED ACCOUNT — NO PASSWORDS.</div>
+    </div>
+  </div></div>
+</div>
+
+<!-- LOGIN -->
+<div class="view" id="view-login">
+  <div class="auth"><div class="wrap">
+    <div class="auth-copy rv">
+      <span class="kick">WELCOME BACK</span>
+      <h2>Your water budget<br>is up to date.</h2>
+      <p class="sub">Recomputed last night from the latest forecast and soil data. Log in to see where your root zone stands this morning.</p>
+      <div class="points">
+        <div><b>✓</b> &nbsp;Last night's irrigation call, ready</div>
+        <div><b>✓</b> &nbsp;Root-zone moisture for your county</div>
+        <div><b>✓</b> &nbsp;Drought &amp; heat watch, refreshed weekly</div>
+      </div>
+    </div>
+    <div class="form-card rv" style="transition-delay:.12s">
+      <h3>Log in</h3>
+      <div class="fsub">USE THE PHONE OR EMAIL YOU SIGNED UP WITH</div>
+      <div class="field"><label>PHONE OR EMAIL</label><input id="liContact" type="text" placeholder="+1 (402) 555-0147"></div>
+      <div class="field"><label>PASSWORD</label><input id="liPass" type="password" placeholder="Your password"></div>
+      <div class="ferr" id="liErr"></div>
+      <button class="btn primary big" style="width:100%" onclick="doLogin()">LOG IN</button>
+      <div class="fswitch">New to Muons Water? <button onclick="go('signup')">Create your farm</button></div>
+      <div class="fnote">DEMO CHECKS ACCOUNTS STORED IN THIS BROWSER.<br>PRODUCTION SIGNS YOU IN WITH A CODE TEXTED TO YOUR PHONE.</div>
+    </div>
+  </div></div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="view" id="view-dash">
+  <section style="padding-top:3rem"><div class="wrap">
+    <div class="dash-head rv">
+      <div><span class="kick">YOUR FARM · UPDATED 06:00 TODAY</span><h2 id="dHello">Good morning</h2></div>
+      <div class="who">SIGNED IN AS <b id="dWho"></b></div>
+    </div>
+    <div class="farm-card rv">
+      <div class="fmeta">
+        <span>COUNTY · <b id="dCounty"></b></span>
+        <span>CROPS · <b id="dCrops"></b></span>
+        <span>ACRES · <b id="dAcres"></b></span>
+      </div>
+      <div class="console" style="box-shadow:none;border:none">
+        <div class="c-head"><span>FIELD WATER BUDGET · <b id="dCountyLbl"></b></span><span class="dbadge" id="dDrought"></span></div>
+        <div class="c-body">
+          <div class="scol">
+            <div class="sc-body">
+              <div class="sc-root" id="dRoot"></div>
+              <div class="sc-water" id="dWater"></div>
+              <div class="sc-line fc" id="dFC"><span>FIELD CAPACITY</span></div>
+              <div class="sc-line mad" id="dMAD"><span id="dMadLbl">MAD 50%</span></div>
+              <div class="sc-line wp" id="dWP"><span>WILTING PT</span></div>
+            </div>
+            <div class="sc-cap" id="dCap"></div>
+          </div>
+          <div class="reads">
+            <div class="read big"><small>SOIL MOISTURE · ROOT ZONE</small><b id="dMoist">—</b><div class="sub" id="dSw"></div></div>
+            <div class="read"><small>AVAILABLE WATER</small><b id="dAvail">—</b><div class="sub">root × soil AWC</div></div>
+            <div class="read"><small>CROP USE · ETc</small><b id="dEtc">—</b><div class="sub" id="dKc"></div></div>
+            <div class="read"><small>RAIN · NEXT 7 DAYS</small><b id="dRain">—</b><div class="sub">forecast</div></div>
+            <div class="verdict" id="dVerdict"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:1.6rem;display:flex;gap:1rem;flex-wrap:wrap" class="rv">
+      <button class="btn ghost" onclick="logout()">LOG OUT</button>
+    </div>
+  </div></section>
+</div>
+</main>
+
+<footer><div class="wrap">
+  <div class="frow2">
+    <div class="flinks"><a href="#">DISCLAIMER</a><a href="#">PRIVACY</a><a href="#">TERMS</a></div>
+    <div class="disclaimer">DECISION SUPPORT, NOT IRRIGATION ADVICE</div>
+    <div class="brandline">MUONS WATER · BUILT FOR THE PEOPLE WHO FEED THE REST</div>
+  </div>
+</div></footer>
+
+<script>
+/* ══ DATA ══ */
+const CROPS={
+  corn:{label:'CORN · GRAIN',root:36,mad:.5,kc:1.15},
+  soy:{label:'SOYBEANS',root:24,mad:.5,kc:1.1},
+  alfalfa:{label:'ALFALFA',root:30,mad:.5,kc:1.05},
+  cover:{label:'COVER CROP',root:10,mad:.45,kc:.3}};
+const SOILS={silt:{label:'SILT LOAM',awc:.20},scl:{label:'SILTY CLAY LOAM',awc:.16},sandy:{label:'SANDY LOAM',awc:.11}};
+const COUNTIES={
+  ne:{label:'CEDAR COUNTY, NE',usdm:'D1',dcol:'#F09A3C',et0:.28,dep0:.40,rain7:.8},
+  ia:{label:'STORY COUNTY, IA',usdm:'D0',dcol:'#E8C53C',et0:.26,dep0:.32,rain7:.9},
+  ks:{label:'FINNEY COUNTY, KS',usdm:'D2',dcol:'#E85A3C',et0:.33,dep0:.58,rain7:.3}};
+const SIGNUP_COUNTIES=['CEDAR COUNTY, NE','DAWSON COUNTY, NE','PHELPS COUNTY, NE','STORY COUNTY, IA','BOONE COUNTY, IA','FINNEY COUNTY, KS','GRAY COUNTY, KS'];
+
+/* ══ REVEAL OBSERVER — defined FIRST so go() can always use it ══ */
+const io=new IntersectionObserver(es=>es.forEach(e=>{
+  if(e.isIntersecting){e.target.classList.add('on');io.unobserve(e.target)}
+}),{threshold:.1});
+
+/* ══ TICKER ══ */
+const ti=['ROOT ZONE 4.3 / 7.2 IN · CEDAR CO','ETc 0.32 IN/DAY','USDM D1 · 62 DAYS SINCE 1"+ RAIN','NEXT RAIN 0.8 IN — MONDAY','SPI-3 −1.4 · MODERATELY DRY','PIVOT CALL: HOLD — RAIN INBOUND','EVERY DROP, ACCOUNTED'];
+document.getElementById('tick').innerHTML=(ti.map(t=>`<span>◈ ${t}</span>`).join('')).repeat(2);
+
+/* ══ ROUTER ══ */
+function go(name){
+  const v=document.getElementById('view-'+name);
+  if(!v) return;
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  v.classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+  try{history.replaceState(null,'','#'+name)}catch(e){}
+  document.querySelectorAll('.rv').forEach(el=>io.observe(el));
+  if(name==='dash') renderDash();
+}
+window.addEventListener('hashchange',()=>{
+  const h=location.hash.slice(1);
+  if(h&&document.getElementById('view-'+h)) go(h);
+});
+
+/* ══ WATER MODEL ══ */
+function budget(ck,sk,cnk){
+  const c=CROPS[ck]||CROPS.corn, s=SOILS[sk]||SOILS.silt, ct=COUNTIES[cnk]||COUNTIES.ne;
+  const avail=c.root*s.awc; const sw0=avail*(1-ct.dep0); const etc=c.kc*ct.et0;
+  let sw=sw0, trig=null;
+  for(let d=1;d<=21;d++){
+    const rain=(d===5)?ct.rain7:0;
+    sw=Math.max(0,Math.min(avail,sw+rain-etc));
+    if(!trig && (1-sw/avail)>=c.mad){trig={day:d,amt:Math.max(0,.9*avail-sw)};}
+  }
+  return {avail,sw0,etc,trig,ct,c};
+}
+function paintColumn(pre,avail,sw,c){
+  const scale=226/40, rootTop=12, rootPx=c.root*scale, rootBot=rootTop+rootPx;
+  const pct=sw/avail, fillPx=pct*rootPx;
+  const root=document.getElementById(pre+'Root'), w=document.getElementById(pre+'Water');
+  if(!root||!w) return;
+  root.style.top=rootTop+'px'; root.style.height=rootPx+'px';
+  w.style.top=(rootBot-fillPx)+'px'; w.style.height=fillPx+'px';
+  w.classList.toggle('low',pct<=(1-c.mad));
+  const fc=document.getElementById(pre+'FC'), mad=document.getElementById(pre+'MAD'), wp=document.getElementById(pre+'WP');
+  if(fc) fc.style.top=rootTop+'px';
+  if(mad) mad.style.top=(rootTop+c.mad*rootPx)+'px';
+  if(wp) wp.style.top=rootBot+'px';
+  const ml=document.getElementById(pre+'MadLbl'); if(ml) ml.textContent='MAD '+Math.round(c.mad*100)+'%';
+  const cap=document.getElementById(pre+'Cap'); if(cap) cap.textContent='ROOT ZONE '+c.root+'" · AW '+avail.toFixed(1)+'"';
+}
+function paintReads(pre,b){
+  const set=(id,txt)=>{const el=document.getElementById(id); if(el) el.textContent=txt;};
+  const pct=b.sw0/b.avail*100;
+  set(pre+'Moist',pct.toFixed(0)+'%');
+  set(pre+'Sw',b.sw0.toFixed(1)+'" of '+b.avail.toFixed(1)+'" AW');
+  set(pre+'Avail',b.avail.toFixed(1)+'"');
+  set(pre+'Etc',b.etc.toFixed(2)+'"/d');
+  set(pre+'Kc','Kc '+b.c.kc.toFixed(2)+' × ET₀ '+b.ct.et0.toFixed(2));
+  set(pre+'Rain',b.ct.rain7.toFixed(1)+'"');
+  const v=document.getElementById(pre+'Verdict');
+  if(v){
+    if(b.trig&&b.trig.day<=5){v.className='verdict hot';v.innerHTML='IRRIGATE '+b.trig.amt.toFixed(1)+'" NOW<small>ROOT ZONE PAST '+Math.round(b.c.mad*100)+'% DEPLETION · APPLY THIS SET</small>';}
+    else if(b.trig){v.className='verdict';v.innerHTML='SCHEDULE '+b.trig.amt.toFixed(1)+'"<small>TRIGGER IN ~'+b.trig.day+' DAYS · MAD '+Math.round(b.c.mad*100)+'% DEPLETION</small>';}
+    else{v.className='verdict';v.innerHTML='HOLD — PROFILE COVERS<small>RAIN + RESERVES MEET CROP USE 21 DAYS OUT</small>';}
+  }
+  const dr=document.getElementById(pre+'Drought');
+  if(dr){dr.textContent='USDM '+b.ct.usdm; dr.style.background=b.ct.dcol;}
+}
+
+/* ══ CONSOLE PICKERS ══ */
+const pC=document.getElementById('pCounty'), pCr=document.getElementById('pCrop'), pS=document.getElementById('pSoil');
+pC.innerHTML=Object.entries(COUNTIES).map(([k,c])=>`<option value="${k}">${c.label}</option>`).join('');
+pCr.innerHTML=Object.entries(CROPS).map(([k,c])=>`<option value="${k}">${c.label}</option>`).join('');
+pS.innerHTML=Object.entries(SOILS).map(([k,s])=>`<option value="${k}">${s.label}</option>`).join('');
+function renderConsole(){
+  const b=budget(pCr.value,pS.value,pC.value);
+  const lbl=document.getElementById('cCountyLbl'); if(lbl) lbl.textContent=COUNTIES[pC.value].label;
+  paintColumn('sc',b.avail,b.sw0,b.c);
+  paintReads('c',b);
+}
+[pC,pCr,pS].forEach(el=>el.addEventListener('change',renderConsole));
+renderConsole();
+
+/* ══ AUTH (demo · localStorage) ══ */
+const hash=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h.toString(16)};
+const users=()=>JSON.parse(localStorage.getItem('muons_users')||'{}');
+const saveUsers=u=>localStorage.setItem('muons_users',JSON.stringify(u));
+const norm=s=>s.trim().toLowerCase();
+const session=()=>{const s=localStorage.getItem('muons_session');return s?users()[s]:null};
+let selCrops=new Set();
+document.querySelectorAll('#suCrops .chip').forEach(ch=>{
+  ch.onclick=()=>{const c=ch.dataset.c; selCrops.has(c)?selCrops.delete(c):selCrops.add(c); ch.classList.toggle('sel');};
+});
+document.getElementById('suCounty').innerHTML='<option value="">Select your county…</option>'+SIGNUP_COUNTIES.map(c=>`<option>${c}</option>`).join('');
+function showErr(id,msg){const e=document.getElementById(id); if(e){e.textContent=msg;e.classList.add('show')}}
+function hideErr(id){const e=document.getElementById(id); if(e) e.classList.remove('show')}
+function doSignup(){
+  hideErr('suErr');
+  const name=document.getElementById('suName').value.trim();
+  const contact=document.getElementById('suContact').value.trim();
+  const pass=document.getElementById('suPass').value;
+  const county=document.getElementById('suCounty').value;
+  if(!contact) return showErr('suErr','A phone or email is required.');
+  if(pass.length<6) return showErr('suErr','Password must be at least 6 characters.');
+  if(!county) return showErr('suErr','Please select your county.');
+  if(selCrops.size===0) return showErr('suErr','Select at least one crop.');
+  const u=users();
+  if(u[norm(contact)]) return showErr('suErr','That phone/email already has a farm. Try logging in.');
+  u[norm(contact)]={name:name||'Farmer',contact,crop:[...selCrops],county,
+    acres:document.getElementById('suAcres').value||'—',pass:hash(pass),created:Date.now()};
+  saveUsers(u);
+  localStorage.setItem('muons_session',norm(contact));
+  updateNav(); go('dash');
+}
+function doLogin(){
+  hideErr('liErr');
+  const contact=norm(document.getElementById('liContact').value);
+  const pass=document.getElementById('liPass').value;
+  const u=users()[contact];
+  if(!u) return showErr('liErr','No farm found for that phone/email. Create one first.');
+  if(u.pass!==hash(pass)) return showErr('liErr','Wrong password. Try again.');
+  localStorage.setItem('muons_session',contact);
+  updateNav(); go('dash');
+}
+function logout(){localStorage.removeItem('muons_session');updateNav();go('landing')}
+function updateNav(){
+  const u=session(); const nav=document.getElementById('navR'); if(!nav) return;
+  if(u){
+    nav.innerHTML='<span class="userchip"><i></i>'+u.name.toUpperCase()+'</span>'+
+      '<button class="navlink" onclick="go(\'dash\')">DASHBOARD</button>'+
+      '<button class="btn ghost" onclick="logout()">LOG OUT</button>';
+  }else{
+    nav.innerHTML='<button class="navlink" onclick="go(\'login\')">LOG IN</button>'+
+      '<button class="btn primary" onclick="go(\'signup\')">CREATE YOUR FARM</button>';
+  }
+}
+const CROP_LBL={corn:'CORN',soy:'SOYBEANS',alfalfa:'ALFALFA',cover:'COVER CROP'};
+function countyKeyFor(label){if(label.includes('IA'))return'ia';if(label.includes('KS'))return'ks';return'ne'}
+function renderDash(){
+  const u=session(); if(!u){go('login');return}
+  const set=(id,txt)=>{const el=document.getElementById(id); if(el) el.textContent=txt;};
+  set('dHello','Good morning, '+u.name.split(' ')[0]+'.');
+  set('dWho',u.contact);
+  set('dCounty',u.county);
+  set('dCrops',u.crop.map(c=>CROP_LBL[c]||c.toUpperCase()).join(' · '));
+  set('dAcres',u.acres);
+  const ck=countyKeyFor(u.county);
+  const cropKey=CROPS[u.crop[0]]?u.crop[0]:'corn';
+  const b=budget(cropKey,'silt',ck);
+  set('dCountyLbl',COUNTIES[ck].label);
+  paintColumn('d',b.avail,b.sw0,b.c);
+  paintReads('d',b);
+}
+
+/* ══ INIT ══ */
+updateNav();
+document.querySelectorAll('.rv').forEach(el=>io.observe(el));
+const startHash=location.hash.slice(1);
+if(session()) go('dash');
+else if(startHash==='login') go('login');
+else if(startHash==='signup') go('signup');
+</script>
+</body>
+</html>

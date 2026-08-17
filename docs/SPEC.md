@@ -1,5 +1,5 @@
 # FURROWCAST — PRODUCT SPECIFICATION
-<!-- DOC VERSION: v1.7 | LAST UPDATED: 2026-08-15 | OWNER: principal -->
+<!-- DOC VERSION: v1.9 | LAST UPDATED: 2026-08-17 | OWNER: principal -->
 
 ## 1 · Product
 County-level planting-window and water-budget advisories for farmers across New York (62 counties),
@@ -98,11 +98,17 @@ tamper-evident chain per county. Any mutation breaks all downstream hashes.
 
 ```hash = sha256(prev_hash + canonical({county_fips, crop_id, date, decision, severity, headline, body}))```
 
-**Nightly cron flow:**
-1. Ingestion (NWS, Open-Meteo, USDM)
-2. `generate_all(date)` — produces advisories for all counties with data
-3. Store to `advisories` table
-4. Optionally send SMS
+**Nightly cron flow** (`backend/app/nightly.py`, run by GitHub Actions cron
+`0 5 * * *` UTC or local `scripts/nightly.sh`):
+1. Span all NY counties (62)
+2. Ingestion: NWS forecast, Open-Meteo forecast + 14-day history, USDM drought polygons
+3. Soil spin-up (`field_cells` + `daily_records`) from fetched history
+4. `generate_all(date)` — produces advisories for all counties with data
+5. Store to `advisories` table
+6. Optionally send SMS (`--sms` / `FURROWCAST_NIGHTLY_SMS=1`)
+7. Log the run to `ingest_runs` (source `nightly_pipeline`, status, row counts)
+   — the dashboard surfaces this as "Data as of <date>" and `/api/admin/refresh`
+   triggers the same pipeline on demand (auth-protected).
 
 ## 6 · Security (summary — full: Addendum 06-2)
 Login: email + password (Argon2id) for the M6 frontend — OTP/WebAuthn deferred
@@ -121,6 +127,8 @@ No native app (gated Jan 2027) · no field polygons (v2) · no MMS · no blog ·
 no standalone chatbot · no payments at signup (free tier first).
 
 ## Changelog
+- v1.9 (2026-08-17): Nightly pipeline fully automated — `app/nightly.py` rewritten as NY-scoped pipeline (NWS + Open-Meteo + USDM + soil spin-up + advisory regeneration in one run), logging to `ingest_runs` (`nightly_pipeline`). New `POST /api/admin/refresh` (auth-protected on-demand trigger), `data_as_of` on advisory responses and `last_pipeline_at`/status on `/api/stats`; dashboard shows "Data as of <date>". Local cron runner `scripts/nightly.sh`; GitHub Actions workflow bumped to Python 3.12.
+- v1.8 (2026-08-17): Dashboard demo fixes — `daily_historical` re-backfilled so all 62 NY counties have real last-7-day rain/ET; `history.last_7d_*` are `null` (not `0.0`) when a county has no backfill, and the dashboard shows "Setting up data for this county". Desktop grid rebalanced (Weather History card no longer leaves dead space). DB restored to NY-only scope (62 NY + legacy seed rows).
 - v1.7 (2026-08-15): NEW YORK is now the SOLE product scope — NE/IA/KS retired as primary target. M6 Next.js dashboard complete (email/password login + logout, Drought/History/Soil cards). `daily_historical` backfilled for all 62 NY counties with real 7-day rain/ET.
 - v1.6 (2026-08-15): Scope expanded to include New York (NY) alongside NE/IA/KS. `INSCOPE_STATES` in `app/advisor/service.py`, `backfill_spinup.py`, `rerun_spinup.py` now include NY; `run.py` gained a `--state` filter to scope connectors. Web dashboard pivoted to NY-only county selector (default Genesee, 36037).
 - v1.5 (2026-08-06): M6 — Farm model API (POST/GET/DELETE /api/farm), Alembic migration m6_add_farms, farm_crops M:N table. Next.js dashboard with Tailwind design system, auth (email+password), onboarding, and live advisory display.

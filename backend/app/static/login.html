@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FurrowCast — Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               background: #f0f4f0; color: #1a1a1a; min-height: 100vh;
+               display: flex; align-items: center; justify-content: center; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+                padding: 40px; width: 100%; max-width: 400px; }
+        h1 { font-size: 24px; margin-bottom: 4px; }
+        .subtitle { color: #666; font-size: 14px; margin-bottom: 24px; }
+        .field { margin-bottom: 16px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #333; }
+        input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
+                font-size: 15px; transition: border-color 0.2s; }
+        input:focus { outline: none; border-color: #2d6a2e; box-shadow: 0 0 0 3px rgba(45,106,46,0.1); }
+        .btn { width: 100%; padding: 12px; background: #2d6a2e; color: white; border: none;
+               border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+               transition: background 0.2s; margin-top: 8px; }
+        .btn:hover { background: #236b23; }
+        .btn:disabled { background: #999; cursor: not-allowed; }
+        .btn.secondary { background: white; color: #2d6a2e; border: 1px solid #2d6a2e; margin-top: 12px; }
+        .btn.secondary:hover { background: #f0f8f0; }
+        .error { color: #d32f2f; font-size: 13px; margin-top: 8px; display: none; }
+        .success { color: #2d6a2e; font-size: 13px; margin-top: 8px; display: none; }
+        .tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #eee; }
+        .tab { flex: 1; padding: 8px; text-align: center; font-size: 14px; font-weight: 600;
+               cursor: pointer; color: #666; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab.active { color: #2d6a2e; border-bottom-color: #2d6a2e; }
+        .form { display: none; }
+        .form.active { display: block; }
+        .phone-note { font-size: 12px; color: #888; margin-top: 4px; }
+        #dashboard { display: none; }
+        .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .dash-header h2 { font-size: 18px; }
+        .logout { font-size: 13px; color: #666; cursor: pointer; text-decoration: underline; }
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+        .stat { background: #f8faf8; border-radius: 8px; padding: 16px; }
+        .stat .num { font-size: 24px; font-weight: 700; color: #2d6a2e; }
+        .stat .lbl { font-size: 12px; color: #666; }
+        .county-list { max-height: 300px; overflow-y: border; border: 1px solid #eee; border-radius: 8px; }
+        .county-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer;
+                       display: flex; justify-content: space-between; font-size: 14px; }
+        .county-item:hover { background: #f0f8f0; }
+        .county-item .state { color: #888; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <!-- Auth Forms -->
+        <div id="auth-section">
+            <h1>🌱 FurrowCast</h1>
+            <p class="subtitle">County-level planting & water advisories</p>
+
+            <div class="tabs">
+                <div class="tab active" onclick="showTab('login')">Login</div>
+                <div class="tab" onclick="showTab('register')">Register</div>
+            </div>
+
+            <!-- Login Form -->
+            <div id="login-form" class="form active">
+                <div class="field">
+                    <label>Email</label>
+                    <input type="email" id="login-email" placeholder="farmer@example.com">
+                </div>
+                <div class="field">
+                    <label>Password</label>
+                    <input type="password" id="login-pass" placeholder="Your password">
+                </div>
+                <div id="login-error" class="error"></div>
+                <button class="btn" onclick="doLogin()">Login</button>
+            </div>
+
+            <!-- Register Form -->
+            <div id="register-form" class="form">
+                <div class="field">
+                    <label>Email</label>
+                    <input type="email" id="reg-email" placeholder="farmer@example.com">
+                </div>
+                <div class="field">
+                    <label>Password</label>
+                    <input type="password" id="reg-pass" placeholder="Min 8 characters">
+                </div>
+                <div class="field">
+                    <label>Phone (optional — for SMS alerts)</label>
+                    <input type="tel" id="reg-phone" placeholder="+1 (555) 123-4567">
+                    <p class="phone-note">We'll text you when action is needed.</p>
+                </div>
+                <div id="reg-error" class="error"></div>
+                <div id="reg-success" class="success"></div>
+                <button class="btn" onclick="doRegister()">Create Account</button>
+            </div>
+        </div>
+
+        <!-- Dashboard (shown after login) -->
+        <div id="dashboard">
+            <div class="dash-header">
+                <h2>🌱 FurrowCast</h2>
+                <span class="logout" onclick="doLogout()">Logout</span>
+            </div>
+            <p style="font-size:14px;color:#666;margin-bottom:16px;" id="user-email"></p>
+            <div class="stat-grid">
+                <div class="stat"><div class="num" id="stat-counties">-</div><div class="lbl">Counties</div></div>
+                <div class="stat"><div class="num" id="stat-forecasts">-</div><div class="lbl">Forecasts</div></div>
+                <div class="stat"><div class="num" id="stat-sms">-</div><div class="lbl">SMS Sent</div></div>
+                <div class="stat"><div class="num" id="stat-ingests">-</div><div class="lbl">Ingest Runs</div></div>
+            </div>
+            <h3 style="font-size:14px;margin-bottom:8px;">Select a County</h3>
+            <div class="county-list" id="county-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+
+        function showTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.form').forEach(f => f.classList.remove('active'));
+            if (tab === 'login') {
+                document.querySelectorAll('.tab')[0].classList.add('active');
+                document.getElementById('login-form').classList.add('active');
+            } else {
+                document.querySelectorAll('.tab')[1].classList.add('active');
+                document.getElementById('register-form').classList.add('active');
+            }
+        }
+
+        function showError(id, msg) {
+            const el = document.getElementById(id);
+            el.textContent = msg;
+            el.style.display = 'block';
+        }
+
+        function hideError(id) { document.getElementById(id).style.display = 'none'; }
+
+        async function doLogin() {
+            hideError('login-error');
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-pass').value;
+            try {
+                const r = await fetch(API + '/api/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email, password}),
+                });
+                if (!r.ok) { const e = await r.json(); showError('login-error', e.detail); return; }
+                const user = await r.json();
+                showDashboard(user);
+            } catch (e) { showError('login-error', 'Network error'); }
+        }
+
+        async function doRegister() {
+            hideError('reg-error');
+            hideError('reg-success');
+            const email = document.getElementById('reg-email').value;
+            const password = document.getElementById('reg-pass').value;
+            const phone = document.getElementById('reg-phone').value;
+            try {
+                const r = await fetch(API + '/api/auth/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email, password, phone: phone || undefined}),
+                });
+                if (!r.ok) { const e = await r.json(); showError('reg-error', e.detail); return; }
+                const user = await r.json();
+                showDashboard(user);
+            } catch (e) { showError('reg-error', 'Network error'); }
+        }
+
+        async function doLogout() {
+            await fetch(API + '/api/auth/logout', {method: 'POST'});
+            document.getElementById('auth-section').style.display = 'block';
+            document.getElementById('dashboard').style.display = 'none';
+        }
+
+        async function showDashboard(user) {
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+            document.getElementById('user-email').textContent = user.email;
+
+            // Load stats
+            try {
+                const r = await fetch(API + '/api/stats');
+                if (r.ok) {
+                    const s = await r.json();
+                    document.getElementById('stat-counties').textContent = s.counties;
+                    document.getElementById('stat-forecasts').textContent = s.forecast_rows;
+                    document.getElementById('stat-sms').textContent = s.sms_sent;
+                    document.getElementById('stat-ingests').textContent = s.ingests.length;
+                }
+            } catch (e) {}
+
+            // Load counties
+            try {
+                const r = await fetch(API + '/api/counties');
+                if (r.ok) {
+                    const counties = await r.json();
+                    const list = document.getElementById('county-list');
+                    list.innerHTML = counties.map(c =>
+                        `<div class="county-item" onclick="viewAdvisory('${c.fips}')">
+                            <span>${c.name}, ${c.state}</span>
+                            <span class="state">${c.fips}</span>
+                        </div>`
+                    ).join('');
+                }
+            } catch (e) {}
+        }
+
+        async function viewAdvisory(fips) {
+            try {
+                const r = await fetch(API + `/api/advisory/${fips}`);
+                if (r.ok) {
+                    const a = await r.json();
+                    alert(`${a.county.name}, ${a.county.state}\n\n` +
+                          `Action: ${a.today.action}\n` +
+                          `Soil: ${a.today.soil_pct.toFixed(0)}%\n` +
+                          `GDD: ${a.today.gdd.toFixed(1)}\n` +
+                          `ETc: ${a.today.etc.toFixed(2)}"/day\n` +
+                          `Depletion: ${(a.today.depletion*100).toFixed(1)}%\n\n` +
+                          `Planting: Corn ${a.planting_window.corn_start} to ${a.planting_window.corn_end}`);
+                }
+            } catch (e) { alert('Error loading advisory'); }
+        }
+
+        // Check if already logged in
+        fetch(API + '/api/auth/me').then(r => {
+            if (r.ok) return r.json();
+            throw 0;
+        }).then(user => {
+            if (user) showDashboard(user);
+        }).catch(() => {});
+    </script>
+</body>
+</html>

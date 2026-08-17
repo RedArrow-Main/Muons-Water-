@@ -1,0 +1,40 @@
+name: Nightly Pipeline
+
+on:
+  schedule:
+    - cron: '0 5 * * *'  # 5 AM UTC = midnight Central
+  workflow_dispatch:
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Ping Healthchecks (start)
+        if: env.HEALTHCHECKS_URL != ''
+        run: curl -sf "${{ secrets.HEALTHCHECKS_URL }}/start" || true
+
+      - name: Run nightly pipeline
+        run: |
+          cd backend
+          python -m app.nightly --date $(date -u -d 'yesterday' +%Y-%m-%d)
+
+      - name: Ping Healthchecks (success)
+        if: success() && env.HEALTHCHECKS_URL != ''
+        run: curl -sf "${{ secrets.HEALTHCHECKS_URL }}" || true
+
+      - name: Ping Healthchecks (failure)
+        if: failure() && env.HEALTHCHECKS_URL != ''
+        run: curl -sf "${{ secrets.HEALTHCHECKS_URL }}/fail" || true

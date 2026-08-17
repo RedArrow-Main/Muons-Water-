@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: furrowcast_db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: furrowcast
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - furrowcast_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d furrowcast"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  furrowcast_pgdata:

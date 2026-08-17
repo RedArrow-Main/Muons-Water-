@@ -1,0 +1,26 @@
+{
+  "latitude": 42.599,
+  "longitude": -97.488,
+  "generationtime_ms": 0.5,
+  "utc_offset_seconds": -21600,
+  "timezone": "America/Chicago",
+  "timezone_abbreviation": "CDT",
+  "elevation": 450,
+  "daily_units": {
+    "time": "iso8601",
+    "temperature_2m_max": "°F",
+    "temperature_2m_min": "°F",
+    "precipitation_sum": "inch",
+    "et0_fao_evapotranspiration": "inch"
+  },
+  "daily": {
+    "time": [
+      "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05",
+      "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10"
+    ],
+    "temperature_2m_max": [88.5, 91.2, 87.3, 85.1, 90.7, 93.4, 89.6, 86.2, 84.8, 88.0],
+    "temperature_2m_min": [65.3, 67.8, 64.1, 62.5, 66.9, 69.2, 66.5, 63.8, 61.4, 65.0],
+    "precipitation_sum": [0.00, 0.00, 0.12, 0.45, 0.00, 0.00, 0.23, 0.00, 0.08, 0.00],
+    "et0_fao_evapotranspiration": [0.28, 0.31, 0.25, 0.20, 0.29, 0.33, 0.27, 0.23, 0.21, 0.26]
+  }
+}
