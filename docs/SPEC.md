@@ -1,5 +1,5 @@
 # FURROWCAST — PRODUCT SPECIFICATION
-<!-- DOC VERSION: v1.11 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
+<!-- DOC VERSION: v1.12 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
 
 ## 1 · Product
 County-level planting-window and water-budget advisories for farmers across New York (62 counties),
@@ -178,6 +178,11 @@ No native app (gated Jan 2027) · no field polygons (v2) · no MMS · no blog ·
 no standalone chatbot · no payments at signup (free tier first).
 
 ## Changelog
+- v1.12 (2026-08-18): Crop Library rotated to the New York scope — `cotton`,
+  `sorghum`, `peanuts` retired (not grown commercially in NY); `cabbage`,
+  `onions`, `sweet corn` added (FAO-56 reference values, pending agronomist
+  sign-off). Migration M8 + seed + engine fallback params updated; still 9
+  crops total.
 - v1.11 (2026-08-18): Growth stage + stage-adjusted MAD wired end-to-end —
   `/api/advisory/{fips}` accepts `crop_id` + `planting_date`, computes the
   current stage from accumulated GDD (backfilled `daily_historical` + live

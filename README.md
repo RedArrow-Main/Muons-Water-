@@ -4,7 +4,7 @@ County-level planting-window and water-budget advisories for New York farmers �
 
 > The farmer gets a 6:30am text with the 3 numbers that matter today; the web shows the math behind them. Value before friction; the phone number is the identity.
 
-**Scope (v1):** 9 crops (corn, soy, alfalfa, cover, cotton, sorghum, potatoes, peanuts, sunflower) × New York (62 counties). SMS is the alarm clock; the web is the planning desk.
+**Scope (v1):** 9 crops (corn, soy, alfalfa, cover, potatoes, sunflower, cabbage, onions, sweet corn) × New York (62 counties). SMS is the alarm clock; the web is the planning desk.
 
 ## Stack
 

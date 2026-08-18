@@ -243,42 +243,55 @@ def test_original_simulate_season_unchanged():
 
 
 # ---------------------------------------------------------------------------
-# New crop library tests (M5: cotton, sorghum, potatoes, peanuts, sunflower)
+# Crop library tests (M8: NY scope — cabbage, onions, sweet corn)
 # ---------------------------------------------------------------------------
 
 def test_crop_params_has_all_nine():
     """CROP_PARAMS contains all 9 crops with correct tuple length."""
     from app.engine.water_balance import CROP_PARAMS
-    expected = {"corn", "soy", "alfalfa", "cover", "cotton", "sorghum",
-                "potatoes", "peanuts", "sunflower"}
+    expected = {"corn", "soy", "alfalfa", "cover", "potatoes", "sunflower",
+                "cabbage", "onions", "sweet corn"}
     assert set(CROP_PARAMS.keys()) == expected
     for crop_id, params in CROP_PARAMS.items():
         assert len(params) == 7, f"{crop_id} params tuple should be 7-element"
 
 
-def test_crop_params_values_cotton():
-    """Cotton parameters match FAO-56 reference values."""
+def test_crop_params_values_cabbage():
+    """Cabbage parameters match FAO-56 reference values."""
     from app.engine.water_balance import CROP_PARAMS
-    base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["cotton"]
-    assert base_temp == 58.0
-    assert root == 60.0
-    assert mad == 0.55
-    assert kc_ini == 0.35
-    assert kc_mid == 1.15
-    assert kc_end == 0.70
-    assert gdd == 2800
+    base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["cabbage"]
+    assert base_temp == 45.0
+    assert root == 18.0
+    assert mad == 0.45
+    assert kc_ini == 0.70
+    assert kc_mid == 1.05
+    assert kc_end == 0.95
+    assert gdd == 2000
 
 
-def test_crop_params_values_sorghum():
-    """Sorghum parameters match FAO-56 reference values."""
+def test_crop_params_values_onions():
+    """Onions parameters match FAO-56 reference values."""
     from app.engine.water_balance import CROP_PARAMS
-    base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["sorghum"]
-    assert base_temp == 50.0
-    assert root == 48.0
+    base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["onions"]
+    assert base_temp == 40.0
+    assert root == 14.0
     assert mad == 0.50
-    assert kc_ini == 0.35
-    assert kc_mid == 1.10
-    assert kc_end == 0.55
+    assert kc_ini == 0.70
+    assert kc_mid == 1.05
+    assert kc_end == 0.75
+    assert gdd == 1800
+
+
+def test_crop_params_values_sweet_corn():
+    """Sweet corn parameters match FAO-56 reference values."""
+    from app.engine.water_balance import CROP_PARAMS
+    base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["sweet corn"]
+    assert base_temp == 50.0
+    assert root == 24.0
+    assert mad == 0.50
+    assert kc_ini == 0.30
+    assert kc_mid == 1.15
+    assert kc_end == 0.90
     assert gdd == 2200
 
 
@@ -295,19 +308,6 @@ def test_crop_params_values_potatoes():
     assert gdd == 1600
 
 
-def test_crop_params_values_peanuts():
-    """Peanuts parameters match FAO-56 reference values."""
-    from app.engine.water_balance import CROP_PARAMS
-    base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["peanuts"]
-    assert base_temp == 54.0
-    assert root == 30.0
-    assert mad == 0.50
-    assert kc_ini == 0.40
-    assert kc_mid == 1.15
-    assert kc_end == 0.60
-    assert gdd == 2500
-
-
 def test_crop_params_values_sunflower():
     """Sunflower parameters match FAO-56 reference values."""
     from app.engine.water_balance import CROP_PARAMS
@@ -321,14 +321,14 @@ def test_crop_params_values_sunflower():
     assert gdd == 2000
 
 
-def test_simulate_season_cotton():
-    """Cotton simulation runs and produces sensible output."""
-    # 3 hot days (cotton base=58°F, so GDD=0 on cool days)
+def test_simulate_season_sweet_corn():
+    """Sweet corn simulation runs and produces sensible output."""
+    # 3 hot days (sweet corn base=50°F, so GDD=0 on cool days)
     series = [_make_day(95, 75)] * 3
-    result = simulate_season(series, "cotton", soil_awc=0.20)
+    result = simulate_season(series, "sweet corn", soil_awc=0.20)
     assert result["days"] == 3
-    # GDD: avg=(95+75)/2=85, GDD=85-58=27 per day → 81 total
-    assert result["total_gdd"] == pytest.approx(81.0, abs=0.1)
+    # GDD: avg=(95+75)/2=85, GDD=85-50=35 per day → 105 total
+    assert result["total_gdd"] == pytest.approx(105.0, abs=0.1)
     # ETc: kc_mid=1.15 × 0.28 = 0.322 per day → 0.966 total
     assert result["total_etc"] == pytest.approx(0.966, abs=0.01)
 
@@ -343,22 +343,23 @@ def test_simulate_season_potatoes():
     assert result["total_gdd"] == pytest.approx(105.0, abs=0.1)
 
 
-def test_simulate_season_sorghum():
-    """Sorghum simulation runs and produces sensible output."""
-    series = [_make_day(95, 75)] * 3
-    result = simulate_season(series, "sorghum", soil_awc=0.20)
+def test_simulate_season_cabbage():
+    """Cabbage simulation runs and produces sensible output."""
+    # Cabbage base=45°F, so GDD is higher than sweet corn on same temps
+    series = [_make_day(89, 71)] * 3
+    result = simulate_season(series, "cabbage", soil_awc=0.20)
     assert result["days"] == 3
-    # GDD: avg=85, GDD=85-50=35 per day → 105 total
+    # GDD: avg=80, GDD=80-45=35 per day → 105 total
     assert result["total_gdd"] == pytest.approx(105.0, abs=0.1)
 
 
-def test_simulate_season_peanuts():
-    """Peanuts simulation runs and produces sensible output."""
+def test_simulate_season_onions():
+    """Onions simulation runs and produces sensible output."""
     series = [_make_day(95, 75)] * 3
-    result = simulate_season(series, "peanuts", soil_awc=0.20)
+    result = simulate_season(series, "onions", soil_awc=0.20)
     assert result["days"] == 3
-    # GDD: avg=85, GDD=85-54=31 per day → 93 total
-    assert result["total_gdd"] == pytest.approx(93.0, abs=0.1)
+    # GDD: avg=85, GDD=85-40=45 per day → 135 total
+    assert result["total_gdd"] == pytest.approx(135.0, abs=0.1)
 
 
 def test_simulate_season_sunflower():
@@ -371,25 +372,25 @@ def test_simulate_season_sunflower():
 
 
 def test_new_crops_deeper_root_holds_more_water():
-    """Cotton (60\" root) depletes slower than potatoes (30\" root) on same weather."""
+    """Sweet corn (24\" root) depletes slower than cabbage (18\" root) on same weather."""
     series = [_make_day(89, 71)] * 30
-    # Cotton: AW = 60 × 0.20 = 12.0
-    result_cotton = simulate_season(series, "cotton", soil_awc=0.20)
-    # Potatoes: AW = 30 × 0.20 = 6.0
-    result_potatoes = simulate_season(series, "potatoes", soil_awc=0.20)
-    # Cotton has 2× AW, so should have fewer days below MAD
-    assert result_cotton["days_below_mad"] <= result_potatoes["days_below_mad"]
+    # Sweet corn: AW = 24 × 0.20 = 4.8
+    result_sweet = simulate_season(series, "sweet corn", soil_awc=0.20)
+    # Cabbage: AW = 18 × 0.20 = 3.6
+    result_cabbage = simulate_season(series, "cabbage", soil_awc=0.20)
+    # Sweet corn has 1.33× AW, so should have fewer days below MAD
+    assert result_sweet["days_below_mad"] <= result_cabbage["days_below_mad"]
 
 
-def test_spinup_cotton_uses_kc_params():
-    """Spin-up for cotton passes kc_initial/kc_end correctly."""
+def test_spinup_cabbage_uses_kc_params():
+    """Spin-up for cabbage passes kc_initial/kc_end correctly."""
     from app.engine.spinup import spinup_soil_moisture
     series = [_make_day(95, 75)] * 30
-    aw = 60 * 0.20  # cotton root depth × AWC
+    aw = 18 * 0.20  # cabbage root depth × AWC
     sw, depletion = spinup_soil_moisture(
-        weather_series=series, aw=aw, kc=1.15,
-        base_temp_f=58.0, gdd_to_maturity=2800.0,
-        kc_initial=0.35, kc_end=0.70,
+        weather_series=series, aw=aw, kc=1.05,
+        base_temp_f=45.0, gdd_to_maturity=2000.0,
+        kc_initial=0.70, kc_end=0.95,
     )
     assert 0.0 <= depletion <= 1.0
     assert sw >= 0.0

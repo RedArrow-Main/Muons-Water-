@@ -1,11 +1,11 @@
 """Tests for Dashboard API endpoints — with auth protection."""
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.db.connection import engine
+from app.main import app
 
 client = TestClient(app)
 
@@ -69,8 +69,8 @@ def test_list_crops():
     assert r.status_code == 200
     data = r.json()
     ids = {c["id"] for c in data}
-    assert {"corn", "soy", "alfalfa", "cover", "cotton", "sorghum",
-            "potatoes", "peanuts", "sunflower"} == ids
+    assert {"corn", "soy", "alfalfa", "cover", "potatoes", "sunflower",
+            "cabbage", "onions", "sweet corn"} == ids
     assert len(data) == 9
     corn = next(c for c in data if c["id"] == "corn")
     assert corn["gdd_total"] == 2700

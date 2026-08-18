@@ -1,11 +1,14 @@
 # API.md - API Contracts
-<!-- DOC VERSION: v1.4 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
+<!-- DOC VERSION: v1.5 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
 
 ## A.4 Contracts
 
 This file contains the API contracts for the furrowcast project.
 
 ## Changelog
+- v1.5 (2026-08-18): Crop Library rotated to NY scope — `cotton`, `sorghum`,
+  `peanuts` removed; `cabbage`, `onions`, `sweet corn` added (FAO-56 reference
+  values). `GET /api/crops` and `crop_id` validation now cover the NY 9.
 - v1.4 (2026-08-18): `GET /api/advisory/{fips}` accepts optional `crop_id`
   and `planting_date` query params and returns the growth stage +
   stage-adjusted MAD in the `crop` object. New `GET /api/crops` crop-library
@@ -30,7 +33,7 @@ This file contains the API contracts for the furrowcast project.
 
 **Query params (both optional):**
 - `crop_id` — any crop in the Crop Library (`corn`, `soy`, `alfalfa`, `cover`,
-  `cotton`, `sorghum`, `potatoes`, `peanuts`, `sunflower`). Default: the
+  `potatoes`, `sunflower`, `cabbage`, `onions`, `sweet corn`). Default: the
   user's farm crop for that county, else `corn`.
 - `planting_date` — `YYYY-MM-DD` the crop was planted. Default: the user's
   farm planting date for that crop/county, else the county's latest safe

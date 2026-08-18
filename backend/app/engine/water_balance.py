@@ -96,12 +96,12 @@ CROP_PARAMS = {
     "soy":       (50.0, 24.0, 0.50, 0.40, 1.10, 0.80, 2500),
     "alfalfa":   (41.0, 30.0, 0.50, 0.40, 1.05, 0.85, 1800),
     "cover":     (40.0, 10.0, 0.45, 0.30, 0.60, 0.55, 1200),
-    # FAO-56 reference values — pending agronomist sign-off
-    "cotton":    (58.0, 60.0, 0.55, 0.35, 1.15, 0.70, 2800),
-    "sorghum":   (50.0, 48.0, 0.50, 0.35, 1.10, 0.55, 2200),
     "potatoes":  (45.0, 30.0, 0.45, 0.45, 1.15, 0.75, 1600),
-    "peanuts":   (54.0, 30.0, 0.50, 0.40, 1.15, 0.60, 2500),
     "sunflower": (46.0, 50.0, 0.50, 0.35, 1.10, 0.55, 2000),
+    # FAO-56 reference values — pending agronomist sign-off
+    "cabbage":   (45.0, 18.0, 0.45, 0.70, 1.05, 0.95, 2000),
+    "onions":    (40.0, 14.0, 0.50, 0.70, 1.05, 0.75, 1800),
+    "sweet corn":(50.0, 24.0, 0.50, 0.30, 1.15, 0.90, 2200),
 }
 
 # Default fallback for unknown crops
@@ -120,8 +120,8 @@ def simulate_season(
     Args:
         weather_series: list of dicts, each with keys:
             tmax_f, tmin_f, precip_in, et0_in  (all floats; may be None for et0)
-        crop_id: "corn", "soy", "alfalfa", "cover", "cotton", "sorghum",
-            "potatoes", "peanuts", or "sunflower"
+        crop_id: "corn", "soy", "alfalfa", "cover", "potatoes", "sunflower",
+            "cabbage", "onions", or "sweet corn"
         soil_awc: soil available water capacity (inches)
         start_sw_frac: initial soil water as fraction of AW (default 0.6)
         use_irrigation: if True, irrigate when depletion >= MAD
@@ -244,8 +244,8 @@ def simulate_season_stage_weighted(
     Args:
         weather_series: list of dicts with keys:
             tmax_f, tmin_f, precip_in, et0_in (all floats; et0 may be None)
-        crop_id: "corn", "soy", "alfalfa", "cover", "cotton", "sorghum",
-            "potatoes", "peanuts", or "sunflower"
+        crop_id: "corn", "soy", "alfalfa", "cover", "potatoes", "sunflower",
+            "cabbage", "onions", or "sweet corn"
         soil_awc: soil available water capacity (inches)
         start_sw_frac: initial soil water as fraction of AW (default 0.6)
         planting_date: optional YYYY-MM-DD string; used only for date labels

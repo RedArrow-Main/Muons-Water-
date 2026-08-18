@@ -44,8 +44,8 @@ def test_counties_have_required_fips():
 
 
 def test_crops_have_required_ids():
-    expected_ids = {"corn", "soy", "alfalfa", "cover", "cotton", "sorghum",
-                    "potatoes", "peanuts", "sunflower"}
+    expected_ids = {"corn", "soy", "alfalfa", "cover", "potatoes", "sunflower",
+                    "cabbage", "onions", "sweet corn"}
     with Session(engine) as db:
         result = db.execute(text("SELECT id FROM crops"))
         ids = {row[0] for row in result}

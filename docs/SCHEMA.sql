@@ -1,4 +1,4 @@
--- SCHEMA.sql — furrowcast v1.7 (M6: Farmer Dashboard + Farm Model + growth stage)
+-- SCHEMA.sql — furrowcast v1.8 (NY crop rotation + per-county soils)
 -- Source of truth for the database schema.
 -- SQLAlchemy models in app/db/models.py must match this file exactly.
 
@@ -23,12 +23,12 @@ CREATE TABLE counties (
 
 -- ─────────────────────────────────────────────────────────────────────
 -- crops — FAO-56 coefficients + agronomy parameters
--- v1.5: expanded to 9 crops (corn, soy, alfalfa, cover + cotton, sorghum,
---        potatoes, peanuts, sunflower). New crops are FAO-56 reference
---        values pending agronomist sign-off.
+-- v1.8: NY scope — 9 crops (corn, soy, alfalfa, cover, potatoes, sunflower,
+--        cabbage, onions, sweet corn). Cabbage/onions/sweet corn are FAO-56
+--        reference values pending agronomist sign-off (M8 migration).
 -- ─────────────────────────────────────────────────────────────────────
 CREATE TABLE crops (
-    id              VARCHAR(20)  PRIMARY KEY,   -- corn, soy, alfalfa, cover
+    id              VARCHAR(20)  PRIMARY KEY,   -- corn, soy, alfalfa, cover, ...
     base_temp_f     DOUBLE PRECISION NOT NULL,  -- base temperature for GDD
     gdd_total       INTEGER      NOT NULL,      -- GDD to maturity
     root_depth_in   DOUBLE PRECISION NOT NULL,  -- effective root depth (inches)

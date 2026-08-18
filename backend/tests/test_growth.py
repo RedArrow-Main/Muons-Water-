@@ -32,7 +32,6 @@ from app.engine.growth import (
     stage_weight,
 )
 
-
 # ---------------------------------------------------------------------------
 # Hand-computed — GDD accumulation
 # ---------------------------------------------------------------------------
@@ -117,7 +116,7 @@ def test_adjusted_mad_maturity_restores():
 def test_adjusted_mad_other_crops():
     """Other crops use their own base MAD."""
     assert adjusted_mad(0.45, 0.55) == pytest.approx(0.27, abs=0.001)  # potatoes
-    assert adjusted_mad(0.55, 0.75) == pytest.approx(0.44, abs=0.001)  # cotton
+    assert adjusted_mad(0.55, 0.75) == pytest.approx(0.44, abs=0.001)  # outlook crops
     assert adjusted_mad(0.50, 0.30) == pytest.approx(0.50, abs=0.001)  # soy vegetative
 
 
