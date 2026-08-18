@@ -1,15 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { getAdvisory, logout } from "@/lib/api";
-import type { AdvisoryResponse, ForecastDay } from "@/lib/types";
+import { getAdvisory, getCrops, getFarms, logout } from "@/lib/api";
+import type { AdvisoryResponse, CropCatalog, Farm, ForecastDay } from "@/lib/types";
 
 const TODAY = new Date().toLocaleDateString("en-US", {
   weekday: "long",
   month: "long",
   day: "numeric",
 });
+
+const CROP_STORAGE_KEY = "furrowcast_crop";
+const PLANTING_STORAGE_KEY = "furrowcast_planting_date";
+
+const FALLBACK_CROPS: string[] = [
+  "corn", "soy", "alfalfa", "cover", "cotton",
+  "sorghum", "potatoes", "peanuts", "sunflower",
+];
 
 function DecisionBadge({ action }: { action: string }) {
   const colors = {
@@ -102,6 +110,49 @@ function CountySelector({ value, onChange }: { value: string; onChange: (v: stri
           <option key={c.fips} value={c.fips}>{c.name} NY</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function FarmConfigPanel({
+  crops,
+  cropId,
+  onCropChange,
+  plantingDate,
+  onPlantingDateChange,
+}: {
+  crops: Array<{ id: string }>;
+  cropId: string;
+  onCropChange: (v: string) => void;
+  plantingDate: string;
+  onPlantingDateChange: (v: string) => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex flex-col sm:flex-row gap-4">
+      <div className="flex-1">
+        <label className="block text-xs font-mono text-gray-500 mb-2 tracking-wider">CROP (YOUR FARM)</label>
+        <select
+          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-mono min-h-[44px] focus:outline-none focus:border-green-500 transition-colors"
+          value={cropId}
+          onChange={e => onCropChange(e.target.value)}
+        >
+          {crops.map(c => (
+            <option key={c.id} value={c.id}>{c.id.toUpperCase()}</option>
+          ))}
+        </select>
+      </div>
+      <div className="flex-1">
+        <label className="block text-xs font-mono text-gray-500 mb-2 tracking-wider">PLANTING DATE</label>
+        <input
+          type="date"
+          min="2025-01-01"
+          max={today}
+          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-mono min-h-[44px] focus:outline-none focus:border-green-500 transition-colors"
+          value={plantingDate}
+          onChange={e => onPlantingDateChange(e.target.value)}
+        />
+      </div>
     </div>
   );
 }
@@ -319,6 +370,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+
+  const [cropsCatalog, setCropsCatalog] = useState<CropCatalog[]>([]);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [cropId, setCropId] = useState("corn");
+  const [plantingDate, setPlantingDate] = useState("");
+  const autoSetPlantingRef = useRef(false);
   const router = useRouter();
 
   async function handleLogout() {
@@ -330,6 +387,39 @@ export default function DashboardPage() {
     router.push("/login");
   }
 
+  // Restore last selection + load the Crop Library and the user's farms
+  useEffect(() => {
+    setCropId(localStorage.getItem(CROP_STORAGE_KEY) || "corn");
+    setPlantingDate(localStorage.getItem(PLANTING_STORAGE_KEY) || "");
+
+    let mounted = true;
+    getCrops().then(rows => {
+      if (mounted && rows.length > 0) setCropsCatalog(rows);
+    });
+    getFarms().then(rows => {
+      if (mounted) setFarms(rows);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Persist the selection — "this is what my farm is planted to"
+  useEffect(() => {
+    localStorage.setItem(CROP_STORAGE_KEY, cropId);
+    localStorage.setItem(PLANTING_STORAGE_KEY, plantingDate);
+  }, [cropId, plantingDate]);
+
+  // Prefill from the user's farm for the selected county
+  useEffect(() => {
+    const farm = farms.find(f => f.county_fips === selectedCounty);
+    if (farm && farm.crops.length > 0) {
+      const primary = farm.crops[0];
+      setCropId(primary.crop_id);
+      if (primary.planting_date) setPlantingDate(primary.planting_date);
+    }
+  }, [selectedCounty, farms]);
+
   useEffect(() => {
     const controller = new AbortController();
     let mounted = true;
@@ -337,7 +427,7 @@ export default function DashboardPage() {
       setLoading(true);
       setError("");
       try {
-        const data = await getAdvisory(selectedCounty, controller.signal);
+        const data = await getAdvisory(selectedCounty, { cropId, plantingDate, signal: controller.signal });
         if (mounted) setAdvisory(data);
       } catch (e: any) {
         if (controller.signal.aborted) return;
@@ -355,7 +445,17 @@ export default function DashboardPage() {
       mounted = false;
       controller.abort();
     };
-  }, [selectedCounty, reloadKey]);
+  }, [selectedCounty, cropId, plantingDate, reloadKey]);
+
+  // Once the backend reports the effective planting date, surface it in the picker
+  useEffect(() => {
+    if (advisory && advisory.crop && !plantingDate && advisory.crop.planting_date && !autoSetPlantingRef.current) {
+      autoSetPlantingRef.current = true;
+      setPlantingDate(advisory.crop.planting_date);
+    }
+  }, [advisory, plantingDate]);
+
+  const cropOptions = cropsCatalog.length > 0 ? cropsCatalog.map(c => ({ id: c.id })) : FALLBACK_CROPS.map(id => ({ id }));
 
   if (loading) {
     return <DashboardSkeleton />;
@@ -441,12 +541,22 @@ export default function DashboardPage() {
       </div>
 
       <CountySelector value={selectedCounty} onChange={setSelectedCounty} />
+      <FarmConfigPanel
+        crops={cropOptions}
+        cropId={cropId}
+        onCropChange={setCropId}
+        plantingDate={plantingDate}
+        onPlantingDateChange={setPlantingDate}
+      />
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 mb-8">
           <div className="mb-6">
             <span className="text-xs font-mono text-gray-500 tracking-wider uppercase">TODAY'S ADVISORY</span>
             <h3 className={`font-mono text-4xl font-bold mt-2 ${actionColor}`}>{actionLabel}</h3>
+            <p className="font-mono text-xs text-gray-500 mt-2 tracking-wide">
+              {crop.id.toUpperCase()} · PLANTED {crop.planting_date ?? "—"} · {crop.stage_label ?? crop.growth_stage} GROWTH STAGE
+            </p>
           </div>
           <div className="flex flex-wrap gap-4 items-center">
             <DecisionBadge action={today.action} />
@@ -463,7 +573,21 @@ export default function DashboardPage() {
 
           <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm">
             <SimpleMetric label="Water used by crop" value={(today.depletion * 100).toFixed(0)} unit="%" />
-            <SimpleMetric label="Refill point" value={(crop.mad * 100).toFixed(0)} unit="%" subtext="water below this = irrigate" />
+            <SimpleMetric
+              label="Refill point"
+              value={(crop.mad * 100).toFixed(0)}
+              unit="%"
+              subtext={
+                crop.base_mad != null
+                  ? `${(crop.base_mad * 100).toFixed(0)}% base · ${crop.stage_label ?? crop.id}`
+                  : "water below this = irrigate"
+              }
+            />
+            <SimpleMetric
+              label="Growth stage"
+              value={crop.stage_label ?? crop.growth_stage ?? "—"}
+              subtext={`${(crop.gdd_pct ?? 0).toFixed(0)}% of season · ${Math.round(crop.cumulative_gdd ?? 0)} GDD`}
+            />
             <SimpleMetric label="Crop water today" value={today.etc.toFixed(2)} unit="in" subtext="inches the crop drinks" />
             <SimpleMetric label="Rain next 7 days" value={today.rain_7d.toFixed(1)} unit="in" />
             <SimpleMetric label="Water to add" value={today.depletion >= crop.mad ? (0.9 * crop.aw - today.soil_water).toFixed(2) : "0.00"} unit="in" subtext="how much to irrigate" />

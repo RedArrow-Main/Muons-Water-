@@ -23,24 +23,48 @@ def _require_user(session_cookie: str | None = Cookie(default=None, alias="sessi
 
 
 # ---------------------------------------------------------------------------
+# Parked crop + planting_date normalization
+# ---------------------------------------------------------------------------
+def _normalize_crops(body: dict) -> list[dict]:
+    """Normalize farm crops to [{"crop_id", "planting_date"}].
+
+    Accepts either the legacy `crop_ids: [str]` list or the richer
+    `crops: [{"crop_id", "planting_date"?}]` list (preferred). Returns [] if
+    neither is given (or the list is empty).
+    """
+    entries = []
+    for c in body.get("crops", []):
+        if isinstance(c, str):
+            entries.append({"crop_id": c, "planting_date": None})
+        elif isinstance(c, dict) and c.get("crop_id"):
+            entries.append({"crop_id": c["crop_id"],
+                            "planting_date": c.get("planting_date") or None})
+    if not entries:
+        entries = [{"crop_id": cid, "planting_date": None}
+                   for cid in body.get("crop_ids", [])]
+    return entries
+
+
+# ---------------------------------------------------------------------------
 # POST /api/farm — create a new farm
 # ---------------------------------------------------------------------------
 @router.post("/farm")
 def create_farm(body: dict, user: dict = Depends(_require_user)):
     """Create a new farm for the current user.
 
-    Body: { county_fips, name, acres?, crop_ids: [str] }
+    Body: { county_fips, name, acres?, crops: [{"crop_id", "planting_date"?}] }
+    Legacy `crop_ids: [str]` still supported.
     """
     county_fips = body.get("county_fips", "").strip()
     name = body.get("name", "").strip()
     acres = body.get("acres")
-    crop_ids = body.get("crop_ids", [])
+    crops = _normalize_crops(body)
 
     if not county_fips or len(county_fips) != 5:
         raise HTTPException(400, "county_fips must be a 5-digit FIPS code")
     if not name:
         raise HTTPException(400, "Farm name is required")
-    if not crop_ids:
+    if not crops:
         raise HTTPException(400, "At least one crop is required")
 
     with Session(engine) as s:
@@ -59,12 +83,12 @@ def create_farm(body: dict, user: dict = Depends(_require_user)):
             raise HTTPException(409, "You already have a farm in this county")
 
         # Verify all crops exist
-        for cid in crop_ids:
+        for entry in crops:
             crop = s.execute(text(
                 "SELECT id FROM crops WHERE id = :cid"
-            ), {"cid": cid}).fetchone()
+            ), {"cid": entry["crop_id"]}).fetchone()
             if not crop:
-                raise HTTPException(404, f"Crop '{cid}' not found")
+                raise HTTPException(404, f"Crop '{entry['crop_id']}' not found")
 
         # Insert farm
         s.execute(text(
@@ -78,15 +102,19 @@ def create_farm(body: dict, user: dict = Depends(_require_user)):
         ), {"uid": user["id"], "fips": county_fips}).fetchone()
         farm_id = farm[0]
 
-        # Insert crop associations
-        for cid in crop_ids:
+        # Insert crop associations with planting dates
+        for entry in crops:
             s.execute(text(
-                "INSERT INTO farm_crops (farm_id, crop_id) VALUES (:fid, :cid)"
-            ), {"fid": farm_id, "cid": cid})
+                "INSERT INTO farm_crops (farm_id, crop_id, planting_date) "
+                "VALUES (:fid, :cid, :pd)"
+            ), {"fid": farm_id, "cid": entry["crop_id"],
+                "pd": entry["planting_date"]})
         s.commit()
 
     return {"id": farm_id, "county_fips": county_fips, "name": name,
-            "acres": acres, "crops": crop_ids}
+            "acres": acres,
+            "crops": [{"crop_id": e["crop_id"], "planting_date": e["planting_date"]}
+                      for e in crops]}
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +132,8 @@ def list_farms(user: dict = Depends(_require_user)):
         farms = []
         for r in rows:
             crops = s.execute(text(
-                "SELECT crop_id FROM farm_crops WHERE farm_id = :fid ORDER BY crop_id"
+                "SELECT crop_id, planting_date FROM farm_crops "
+                "WHERE farm_id = :fid ORDER BY crop_id"
             ), {"fid": r[0]}).fetchall()
             farms.append({
                 "id": r[0],
@@ -112,7 +141,8 @@ def list_farms(user: dict = Depends(_require_user)):
                 "name": r[2],
                 "acres": float(r[3]) if r[3] else None,
                 "created_at": str(r[4]),
-                "crops": [c[0] for c in crops],
+                "crops": [{"crop_id": c[0], "planting_date": str(c[1]) if c[1] else None}
+                          for c in crops],
             })
     return farms
 

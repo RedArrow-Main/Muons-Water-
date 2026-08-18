@@ -11,10 +11,44 @@ export interface SoilData {
   awc: number;
 }
 
+export type GrowthStage = "vegetative" | "pollination" | "grain_fill" | "maturity";
+
 export interface Crop {
   id: string;
   aw: number;
   mad: number;
+  base_mad?: number;
+  planting_date?: string | null;
+  growth_stage?: GrowthStage;
+  stage_label?: string;
+  gdd_pct?: number;
+  cumulative_gdd?: number;
+  gdd_to_maturity?: number;
+}
+
+export interface CropCatalog {
+  id: string;
+  base_temp_f: number;
+  gdd_total: number;
+  root_depth_in: number;
+  mad_fraction: number;
+  kc_initial: number;
+  kc_mid: number;
+  kc_end: number;
+}
+
+export interface FarmCrop {
+  crop_id: string;
+  planting_date: string | null;
+}
+
+export interface Farm {
+  id: number;
+  county_fips: string;
+  name: string;
+  acres: number | null;
+  created_at: string;
+  crops: FarmCrop[];
 }
 
 export interface ForecastDay {
@@ -75,18 +109,23 @@ export interface AdvisoryResponse {
 
 export async function getAdvisory(
   fips: string,
-  signal?: AbortSignal
+  opts: { cropId?: string; plantingDate?: string; signal?: AbortSignal } = {}
 ): Promise<AdvisoryResponse | null> {
   try {
+    const params = new URLSearchParams();
+    if (opts.cropId) params.set("crop_id", opts.cropId);
+    if (opts.plantingDate) params.set("planting_date", opts.plantingDate);
+    const qs = params.toString();
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const response = await fetch(`${baseUrl}/api/advisory/${fips}`, {
+    const url = `${baseUrl}/api/advisory/${fips}${qs ? `?${qs}` : ""}`;
+    const response = await fetch(url, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
       },
       cache: "no-store",
       credentials: "include",
-      signal,
+      signal: opts.signal,
     });
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
@@ -101,6 +140,44 @@ export async function getAdvisory(
     }
     console.error("Failed to fetch advisory:", error);
     return null;
+  }
+}
+
+export async function getCrops(): Promise<CropCatalog[]> {
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const response = await fetch(`${baseUrl}/api/crops`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (!response.ok) {
+      return [];
+    }
+    return response.json();
+  } catch (error) {
+    console.error("Failed to fetch crops:", error);
+    return [];
+  }
+}
+
+export async function getFarms(): Promise<Farm[]> {
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const response = await fetch(`${baseUrl}/api/farm`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (!response.ok) {
+      return [];
+    }
+    return response.json();
+  } catch (error) {
+    console.error("Failed to fetch farms:", error);
+    return [];
   }
 }
 

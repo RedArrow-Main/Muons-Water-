@@ -28,6 +28,10 @@ def setup_module():
 def teardown_module():
     client.cookies.clear()
     with Session(engine) as s:
+        s.execute(text(
+            "DELETE FROM farms WHERE user_id IN "
+            "(SELECT id FROM users WHERE email = 'dash@test.com')"
+        ))
         s.execute(text("DELETE FROM users WHERE email = 'dash@test.com'"))
         s.commit()
 
@@ -54,6 +58,24 @@ def test_list_counties():
     assert len(ny) == 62
     assert data[0]["fips"]
     assert "lat" in data[0]
+
+
+# ---------------------------------------------------------------------------
+# Crop Library (public)
+# ---------------------------------------------------------------------------
+
+def test_list_crops():
+    r = client.get("/api/crops")
+    assert r.status_code == 200
+    data = r.json()
+    ids = {c["id"] for c in data}
+    assert {"corn", "soy", "alfalfa", "cover", "cotton", "sorghum",
+            "potatoes", "peanuts", "sunflower"} == ids
+    assert len(data) == 9
+    corn = next(c for c in data if c["id"] == "corn")
+    assert corn["gdd_total"] == 2700
+    assert corn["base_temp_f"] == 50.0
+    assert corn["mad_fraction"] == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +113,83 @@ def test_get_advisory_unauthenticated():
     c = TestClient(app, cookies={})
     r = c.get("/api/advisory/31027")
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Advisory — crop + planting date, growth stage, stage-adjusted MAD
+# ---------------------------------------------------------------------------
+
+_MAD_FACTORS = {
+    "vegetative": 1.0, "pollination": 0.6, "grain_fill": 0.8, "maturity": 1.0,
+}
+
+
+def test_get_advisory_with_crop_and_planting_date():
+    r = client.get("/api/advisory/36037?crop_id=corn&planting_date=2026-08-01")
+    assert r.status_code == 200
+    data = r.json()
+    crop = data["crop"]
+    assert crop["id"] == "corn"
+    assert crop["planting_date"] == "2026-08-01"
+    assert crop["base_mad"] == 0.5
+    assert crop["growth_stage"] in _MAD_FACTORS
+    assert crop["stage_label"]
+    assert crop["gdd_to_maturity"] == 2700
+    assert 0.0 <= crop["gdd_pct"] <= 100.0
+    # Stage-adjusted MAD = base_mad × factor of the current stage
+    assert crop["mad"] == pytest.approx(
+        crop["base_mad"] * _MAD_FACTORS[crop["growth_stage"]], abs=0.001
+    )
+    assert "forecast" in data
+    assert "growth_stage" in crop
+
+
+def test_get_advisory_soy_stage_weight_lower():
+    """Soy has same GDD base but deeper season — verify engine wiring."""
+    r = client.get("/api/advisory/36037?crop_id=soy&planting_date=2026-08-01")
+    assert r.status_code == 200
+    crop = r.json()["crop"]
+    assert crop["id"] == "soy"
+    assert crop["gdd_to_maturity"] == 2500
+    assert crop["mad"] == pytest.approx(
+        crop["base_mad"] * _MAD_FACTORS[crop["growth_stage"]], abs=0.001
+    )
+
+
+def test_get_advisory_unknown_crop_404():
+    r = client.get("/api/advisory/36037?crop_id=banana&planting_date=2026-08-01")
+    assert r.status_code == 404
+
+
+def test_get_advisory_default_planting_date():
+    """No planting_date → backend sets the county's latest safe plant date."""
+    r = client.get("/api/advisory/36037?crop_id=corn")
+    assert r.status_code == 200
+    crop = r.json()["crop"]
+    assert crop["planting_date"]
+    assert crop["growth_stage"] in _MAD_FACTORS
+
+
+def test_get_advisory_uses_farm_crop_default():
+    """Farm's crop + planting_date become the advisory defaults."""
+    body = None
+    try:
+        r = client.post("/api/farm", json={
+            "county_fips": "36037",
+            "name": "Contract Test Farm",
+            "crops": [{"crop_id": "soy", "planting_date": "2026-08-01"}],
+        })
+        assert r.status_code == 200
+        body = r.json()
+        assert body["crops"] == [{"crop_id": "soy", "planting_date": "2026-08-01"}]
+
+        r = client.get("/api/advisory/36037")
+        assert r.status_code == 200
+        crop = r.json()["crop"]
+        assert crop["id"] == "soy"
+        assert crop["planting_date"] == "2026-08-01"
+    finally:
+        client.delete(f"/api/farm/{body['id']}")
 
 
 # ---------------------------------------------------------------------------

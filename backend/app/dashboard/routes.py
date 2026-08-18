@@ -9,14 +9,22 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.auth.routes import require_auth
 from app.db.connection import engine
 from app.engine.gdd import gdd_daily
+from app.engine.growth import (
+    adjusted_mad as stage_adjusted_mad,
+    cumulative_gdd as accumulate_gdd,
+    gdd_fraction,
+    growth_stage,
+    stage_label,
+)
 from app.engine.water_balance import (
+    CROP_PARAMS as ENGINE_CROP_PARAMS,
     compute_etc,
     refill_amount,
     should_irrigate,
@@ -26,12 +34,6 @@ from app.engine.water_balance import (
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
 _FIPS_RE = re.compile(r"^\d{5}$")
-
-# Crop params (from SPEC.md / FAO-56)
-CROP_PARAMS = {
-    "corn": {"base_temp_f": 50, "root_depth_in": 36, "mad": 0.50, "kc_mid": 1.15},
-    "soy":  {"base_temp_f": 50, "root_depth_in": 24, "mad": 0.50, "kc_mid": 1.10},
-}
 
 OPEN_METEO_FORECAST = (
     "https://api.open-meteo.com/v1/forecast"
@@ -164,6 +166,76 @@ def _last_pipeline_info() -> dict:
     }
 
 
+def _crop_params(crop_id: str) -> dict | None:
+    """Crop params from the crops table (Crop Library), engine fallback."""
+    with Session(engine) as s:
+        row = s.execute(text(
+            "SELECT id, base_temp_f, gdd_total, root_depth_in, mad_fraction, "
+            "kc_initial, kc_mid, kc_end FROM crops WHERE id = :id"
+        ), {"id": crop_id}).fetchone()
+    if row:
+        return {
+            "id": row[0], "base_temp_f": row[1], "gdd_total": row[2],
+            "root_depth_in": row[3], "mad_fraction": row[4],
+            "kc_initial": row[5], "kc_mid": row[6], "kc_end": row[7],
+        }
+    fallback = ENGINE_CROP_PARAMS.get(crop_id)
+    if fallback:
+        base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = fallback
+        return {
+            "id": crop_id, "base_temp_f": base_temp, "gdd_total": gdd,
+            "root_depth_in": root, "mad_fraction": mad,
+            "kc_initial": kc_ini, "kc_mid": kc_mid, "kc_end": kc_end,
+        }
+    return None
+
+
+def _historical_temps(fips: str, lat: float, lon: float,
+                      start_date: str, end_date: str) -> dict[str, tuple]:
+    """Daily temps {date: (tmax_f, tmin_f)} across [start_date, end_date].
+
+    Backfilled `daily_historical` rows are authoritative; a live Open-Meteo
+    archive fetch fills earlier gaps (e.g. a planting date before backfill).
+    """
+    merged: dict[str, tuple] = {}
+    with Session(engine) as s:
+        rows = s.execute(text(
+            "SELECT obs_date, tmax_f, tmin_f FROM daily_historical "
+            "WHERE county_fips = :f AND obs_date >= :s AND obs_date <= :e"
+        ), {"f": fips, "s": start_date, "e": end_date}).fetchall()
+    db_days = {r[0]: (r[1], r[2]) for r in rows
+               if r[1] is not None and r[2] is not None}
+
+    url = OPEN_METEO_HISTORY.format(lat=lat, lon=lon, start=start_date, end=end_date)
+    data = _fetch_json(url, timeout=20)
+    if data and "daily" in data:
+        h = data["daily"]
+        times = h.get("time", [])
+        tmaxs = h.get("temperature_2m_max", [])
+        tmins = h.get("temperature_2m_min", [])
+        for i, day in enumerate(times):
+            if i < len(tmaxs) and i < len(tmins):
+                merged[day] = (tmaxs[i], tmins[i])
+    merged.update(db_days)
+    return merged
+
+
+def _farm_crop_default(user_id: int, fips: str) -> dict | None:
+    """Return {crop_id, planting_date} for a user's farm in this county."""
+    if not user_id:
+        return None
+    with Session(engine) as s:
+        row = s.execute(text(
+            "SELECT fc.crop_id, fc.planting_date "
+            "FROM farm_crops fc JOIN farms f ON f.id = fc.farm_id "
+            "WHERE f.user_id = :uid AND f.county_fips = :fips "
+            "ORDER BY fc.crop_id LIMIT 1"
+        ), {"uid": user_id, "fips": fips}).fetchone()
+    if not row:
+        return None
+    return {"crop_id": row[0], "planting_date": str(row[1]) if row[1] else None}
+
+
 # ---------------------------------------------------------------------------
 # GET /api/counties — list all counties
 # ---------------------------------------------------------------------------
@@ -183,19 +255,47 @@ def list_counties():
 
 
 # ---------------------------------------------------------------------------
+# GET /api/crops — the Crop Library (9 crops, FAO-56 params)
+# ---------------------------------------------------------------------------
+@router.get("/crops")
+def list_crops():
+    """Return the full crop library from the crops table."""
+    with Session(engine) as s:
+        rows = s.execute(text(
+            "SELECT id, base_temp_f, gdd_total, root_depth_in, mad_fraction, "
+            "kc_initial, kc_mid, kc_end FROM crops ORDER BY id"
+        )).fetchall()
+    return [
+        {
+            "id": r[0], "base_temp_f": r[1], "gdd_total": r[2],
+            "root_depth_in": r[3], "mad_fraction": r[4],
+            "kc_initial": r[5], "kc_mid": r[6], "kc_end": r[7],
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
 # GET /api/advisory/{fips} — full advisory, ALL LIVE DATA
 # ---------------------------------------------------------------------------
 @router.get("/advisory/{fips}")
 def get_advisory(
     fips: str = Path(pattern=r"^\d{5}$"),
+    crop_id: str | None = Query(default=None),
+    planting_date: str | None = Query(default=None),
     user: dict = Depends(require_auth),
 ):
-    """Return full advisory for a county — everything fetched live.
+    """Return full advisory for a county — everything computed in real-time.
 
-    1. County info from DB (just name/lat/lon)
-    2. 7-day forecast LIVE from Open-Meteo
-    3. Soil AWC LIVE from SSURGO (or regional estimate)
-    4. GDD, ETc, soil water, depletion computed in real-time
+    Query params (both optional):
+      crop_id:       any crop in the Crop Library (default: user's farm crop,
+                     else corn)
+      planting_date: YYYY-MM-DD the crop was planted (default: user's farm
+                     planting date, else the county's latest safe plant date)
+
+    The growth stage is determined from GDD accumulated between planting_date
+    and yesterday (backfilled `daily_historical` + live Open-Meteo archive),
+    and the MAD (refill point) is stage-adjusted from the crop's base MAD.
     """
     # 1. Get county location from DB
     with Session(engine) as s:
@@ -209,18 +309,48 @@ def get_advisory(
 
     fips_db, name, state, lat, lon, frost_50 = county
 
-    # 2. Crop params (corn default)
-    crop = CROP_PARAMS["corn"]
+    # 2. Crop + planting date — explicit params win, else the user's farm
+    farm_sel = _farm_crop_default(user.get("id"), fips)
+    if not crop_id:
+        crop_id = (farm_sel.get("crop_id") if farm_sel else None) or "corn"
+    if not planting_date:
+        planting_date = (
+            farm_sel.get("planting_date") if farm_sel and farm_sel.get("crop_id") == crop_id
+            else None
+        )
+
+    crop = _crop_params(crop_id)
+    if not crop:
+        raise HTTPException(404, f"Crop '{crop_id}' not found")
+
     base_temp = crop["base_temp_f"]
+    gdd_to_maturity = crop["gdd_total"]
+    base_mad = crop["mad_fraction"]
     root_depth = crop["root_depth_in"]
-    mad = crop["mad"]
     kc_mid = crop["kc_mid"]
 
     # 3. Soil AWC — fetch live from SSURGO
     soil_type, awc = _get_soil_awc(lat, lon)
     aw = root_depth * awc
 
-    # 4. 7-day forecast — fetch LIVE from Open-Meteo
+    # 4. Growth stage — GDD from planting_date → yesterday (historical temps)
+    if not planting_date:
+        def _fmt_julian(j: int) -> str:
+            d = datetime(2026, 1, 1).toordinal() + j - 1
+            return datetime.fromordinal(d).strftime("%Y-%m-%d")
+        planting_date = _fmt_julian(frost_50 - 120)  # latest safe plant date
+
+    today = datetime.now()
+    yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    temps = _historical_temps(fips_db, lat, lon, planting_date, yesterday)
+    series = [temps[d] for d in sorted(temps)
+              if temps[d][0] is not None and temps[d][1] is not None]
+    cum_gdd = accumulate_gdd(series, base_temp)
+    frac = gdd_fraction(cum_gdd, gdd_to_maturity)
+    stage = growth_stage(frac)
+    mad = stage_adjusted_mad(base_mad, frac)
+
+    # 5. 7-day forecast — fetch LIVE from Open-Meteo
     forecast_url = OPEN_METEO_FORECAST.format(lat=lat, lon=lon)
     fc_data = _fetch_json(forecast_url, timeout=15)
 
@@ -234,8 +364,7 @@ def get_advisory(
     precip_list = daily.get("precipitation_sum", [])
     et0_list = daily.get("et0_fao_evapotranspiration", [])
 
-    # 5. Historical averages — fetch last 30 days LIVE
-    today = datetime.now()
+    # 6. Historical averages — fetch last 30 days LIVE
     hist_start = (today - timedelta(days=30)).strftime("%Y-%m-%d")
     hist_end = today.strftime("%Y-%m-%d")
     hist_url = OPEN_METEO_HISTORY.format(lat=lat, lon=lon, start=hist_start, end=hist_end)
@@ -256,7 +385,7 @@ def get_advisory(
         if h_precip:
             hist_total_rain = sum(h_precip)
 
-    # 5b. Real last-7-day history from the daily_historical table
+    # 6b. Real last-7-day history from the daily_historical table
     #     None = county has no backfilled history yet (frontend shows "setting up").
     seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
     with Session(engine) as hs:
@@ -272,7 +401,7 @@ def get_advisory(
         last_7d_rain = None
         last_7d_et = None
 
-    # 6. Compute everything in real-time
+    # 7. Compute everything in real-time (MAD is stage-adjusted)
     forecast = []
     soil_water = 0.7 * aw  # assume 70% full at season start
     today_gdd = 0
@@ -331,7 +460,18 @@ def get_advisory(
             "lon": lon,
         },
         "soil": {"type": soil_type, "awc": awc},
-        "crop": {"id": "corn", "aw": round(aw, 2), "mad": mad},
+        "crop": {
+            "id": crop_id,
+            "aw": round(aw, 2),
+            "mad": mad,
+            "base_mad": base_mad,
+            "planting_date": planting_date,
+            "growth_stage": stage,
+            "stage_label": stage_label(frac),
+            "gdd_pct": round(frac * 100, 1),
+            "cumulative_gdd": round(cum_gdd, 1),
+            "gdd_to_maturity": gdd_to_maturity,
+        },
         "forecast": forecast,
         "today": {
             "gdd": round(today_gdd, 1),

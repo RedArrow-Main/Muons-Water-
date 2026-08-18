@@ -1,5 +1,5 @@
 # FURROWCAST — PRODUCT SPECIFICATION
-<!-- DOC VERSION: v1.10 | LAST UPDATED: 2026-08-17 | OWNER: principal -->
+<!-- DOC VERSION: v1.11 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
 
 ## 1 · Product
 County-level planting-window and water-budget advisories for farmers across New York (62 counties),
@@ -60,6 +60,44 @@ Worked example (45 vegetative + 1 pollination day, start_sw_frac=0.0):
   Vegetative: 44 days × 0.322 × 0.4 = 5.6672
   Pollination: 2 days × 0.322 × 1.5 = 0.966
   stage_weighted_deficit = 6.6332 in
+
+### Growth stage + stage-adjusted MAD (v1.11)
+
+The crop's current growth stage is derived from GDD accumulated since planting:
+
+```
+cumulative_gdd = Σ GDD_day from planting_date to yesterday
+gdd_frac       = cumulative_gdd / gdd_to_maturity   (crop's GDD to maturity)
+stage          = band lookup of gdd_frac (table above)
+```
+
+The dashboard computes `cumulative_gdd` from backfilled `daily_historical`
+temps (authoritative) with a live Open-Meteo archive fetch filling any gaps
+before the backfill window. The advisory endpoint accepts `crop_id` and
+`planting_date` query params; absent that, it defaults to the user's farm
+crop + planting date for that county (or corn at the county's latest safe
+plant date).
+
+**Stage-adjusted MAD (refill point):** MAD is scaled by stage so the refill
+decision is more conservative during yield-critical windows.
+
+| Stage          | MAD factor | Rationale |
+|----------------|-----------|-----------|
+| Vegetative     | 1.00      | Normal management |
+| Pollination    | 0.60      | Critical — refill earlier to protect grain set |
+| Grain fill     | 0.80      | Sensitive — keep root zone wetter |
+| Maturity       | 1.00      | Normal; dry-down tolerated |
+
+```
+adjusted_mad = base_mad × stage_mad_factor(stage)
+```
+
+Worked example (corn, base_mad = 0.50):
+  Planted May 1; by Aug 17 it has accumulated 1,377 GDD (base 50°F).
+  gdd_frac = 1377 / 2700 = 0.51 → Pollination → factor 0.60
+  adjusted_mad = 0.50 × 0.60 = 0.30  → irrigate when depletion ≥ 0.30
+
+Engine: `app/engine/growth.py` (band table mirrors water_balance.STAGE_WEIGHTS).
 
 ## 5 · Modules
 8 modules / 48 submodules — see the Bill of Modules (FC-BM-001).
@@ -140,6 +178,13 @@ No native app (gated Jan 2027) · no field polygons (v2) · no MMS · no blog ·
 no standalone chatbot · no payments at signup (free tier first).
 
 ## Changelog
+- v1.11 (2026-08-18): Growth stage + stage-adjusted MAD wired end-to-end —
+  `/api/advisory/{fips}` accepts `crop_id` + `planting_date`, computes the
+  current stage from accumulated GDD (backfilled `daily_historical` + live
+  Open-Meteo archive) and scales MAD by stage (Pollination ×0.60, Grain fill
+  ×0.80) so the refill point reacts to the season. Farm crops gain
+  `planting_date`; dashboard shows crop selector, planting date, and the
+  current Growth Stage. Engine `app/engine/growth.py`.
 - v1.10 (2026-08-17): Production deploy prep — `render.yaml` blueprint
   (backend + frontend web services), Dockerfiles for backend (migrate +
   bootstrap + uvicorn) and web (Next.js standalone), `app/db/bootstrap.py`

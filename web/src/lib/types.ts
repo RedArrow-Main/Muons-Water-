@@ -11,10 +11,44 @@ export interface SoilData {
   awc: number;
 }
 
+export type GrowthStage = "vegetative" | "pollination" | "grain_fill" | "maturity";
+
 export interface Crop {
   id: string;
   aw: number;
   mad: number;
+  base_mad?: number;
+  planting_date?: string | null;
+  growth_stage?: GrowthStage;
+  stage_label?: string;
+  gdd_pct?: number;
+  cumulative_gdd?: number;
+  gdd_to_maturity?: number;
+}
+
+export interface CropCatalog {
+  id: string;
+  base_temp_f: number;
+  gdd_total: number;
+  root_depth_in: number;
+  mad_fraction: number;
+  kc_initial: number;
+  kc_mid: number;
+  kc_end: number;
+}
+
+export interface FarmCrop {
+  crop_id: string;
+  planting_date: string | null;
+}
+
+export interface Farm {
+  id: number;
+  county_fips: string;
+  name: string;
+  acres: number | null;
+  created_at: string;
+  crops: FarmCrop[];
 }
 
 export interface ForecastDay {

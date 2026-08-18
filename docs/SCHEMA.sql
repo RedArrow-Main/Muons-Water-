@@ -1,4 +1,4 @@
--- SCHEMA.sql — furrowcast v1.6 (M6: Farmer Dashboard + Farm Model)
+-- SCHEMA.sql — furrowcast v1.7 (M6: Farmer Dashboard + Farm Model + growth stage)
 -- Source of truth for the database schema.
 -- SQLAlchemy models in app/db/models.py must match this file exactly.
 
@@ -195,9 +195,12 @@ CREATE TABLE farms (
 
 -- ─────────────────────────────────────────────────────────────────────
 -- farm_crops — which crops a farm grows (M:N)
+-- v1.7: planting_date added (m7_farm_planting_date) — drives the GDD
+--       growth-stage calculation on the dashboard.
 -- ─────────────────────────────────────────────────────────────────────
 CREATE TABLE farm_crops (
     farm_id         INTEGER      NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
     crop_id         VARCHAR(20)  NOT NULL REFERENCES crops(id),
+    planting_date   VARCHAR(10),              -- YYYY-MM-DD (nullable)
     PRIMARY KEY (farm_id, crop_id)
 );
