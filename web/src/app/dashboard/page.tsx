@@ -15,8 +15,8 @@ const CROP_STORAGE_KEY = "furrowcast_crop";
 const PLANTING_STORAGE_KEY = "furrowcast_planting_date";
 
 const FALLBACK_CROPS: string[] = [
-  "corn", "soy", "alfalfa", "cover", "cotton",
-  "sorghum", "potatoes", "peanuts", "sunflower",
+  "corn", "soy", "alfalfa", "cover", "potatoes",
+  "sunflower", "cabbage", "onions", "sweet corn",
 ];
 
 function DecisionBadge({ action }: { action: string }) {
