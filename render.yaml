@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: furrowcast-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerfileCtx: ./backend
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: FURROWCAST_COOKIE_SAMESITE
+        value: none
+      - key: FURROWCAST_COOKIE_SECURE
+        value: "1"
+
+  - type: web
+    name: furrowcast-web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./web/Dockerfile
+    dockerfileCtx: ./web
+    healthCheckPath: /
+    buildFilter:
+      paths:
+        - web/**
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

@@ -1,11 +1,15 @@
 # API.md - API Contracts
-<!-- DOC VERSION: v1.2 | LAST UPDATED: 2026-08-17 | OWNER: principal -->
+<!-- DOC VERSION: v1.3 | LAST UPDATED: 2026-08-17 | OWNER: principal -->
 
 ## A.4 Contracts
 
 This file contains the API contracts for the furrowcast project.
 
 ## Changelog
+- v1.3 (2026-08-17): Session cookie flags are env-configurable for cross-site
+  HTTPS deployments: `FURROWCAST_COOKIE_SAMESITE=none` +
+  `FURROWCAST_COOKIE_SECURE=1` (requires HTTPS). CORS origins come from the
+  comma-separated `CORS_ALLOWED_ORIGINS` env var (plus localhost dev origins).
 - v1.2 (2026-08-17): `data_as_of` added to `GET /api/advisory/{fips}` responses
   and `last_pipeline_at`/`last_pipeline_status`/`last_pipeline_rows` added to
   `GET /api/stats` (both from `ingest_runs`, source `nightly_pipeline`). New

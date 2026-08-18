@@ -1,5 +1,5 @@
 # FURROWCAST — PRODUCT SPECIFICATION
-<!-- DOC VERSION: v1.9 | LAST UPDATED: 2026-08-17 | OWNER: principal -->
+<!-- DOC VERSION: v1.10 | LAST UPDATED: 2026-08-17 | OWNER: principal -->
 
 ## 1 · Product
 County-level planting-window and water-budget advisories for farmers across New York (62 counties),
@@ -115,8 +115,21 @@ Login: email + password (Argon2id) for the M6 frontend — OTP/WebAuthn deferred
 (see DECISIONS.md D-007). Local dev bypass: FURROWCAST_DEV_PUBLIC=1 makes
 protected routes public.
 Sessions: 15-min access, 30-day rotating refresh, device-bound, revocable.
+Production cookies: set `FURROWCAST_COOKIE_SAMESITE=none` +
+`FURROWCAST_COOKIE_SECURE=1` so the session cookie survives cross-site fetches
+(frontend and API on different hosts, e.g. Render). Requires HTTPS.
 Audit: advisories hash-chained (SHA-256), daily Merkle root anchored to Bitcoin.
 PII: phone encrypted at rest, never logged. Admin: YubiKey only.
+
+## 7 · Deployment (public demo)
+Deploy configs live in `render.yaml` (Render blueprint), `backend/Dockerfile`
+(migrate + bootstrap + uvicorn), `web/Dockerfile` (Next.js standalone).
+- DB: external Postgres (e.g. Neon free tier) — `DATABASE_URL` env.
+- CORS: comma-separated `CORS_ALLOWED_ORIGINS` env (frontend host) + localhost.
+- Bootstrap: `python -m app.db.bootstrap` loads 62 NY counties, 9 crops, 62
+  soils on first boot (idempotent). Weather + advisories come from the nightly
+  pipeline (`POST /api/admin/refresh` or `python -m app.nightly`).
+- `FURROWCAST_DEV_PUBLIC` MUST NOT be set in production.
 
 ## 7 · SMS rules
 3 lines max per digest · quiet hours respected · STOP honored in one cycle ·
@@ -127,6 +140,12 @@ No native app (gated Jan 2027) · no field polygons (v2) · no MMS · no blog ·
 no standalone chatbot · no payments at signup (free tier first).
 
 ## Changelog
+- v1.10 (2026-08-17): Production deploy prep — `render.yaml` blueprint
+  (backend + frontend web services), Dockerfiles for backend (migrate +
+  bootstrap + uvicorn) and web (Next.js standalone), `app/db/bootstrap.py`
+  NY-only first-boot loader (62 counties, 9 crops, 62 soils). CORS origins now
+  env-driven (`CORS_ALLOWED_ORIGINS`); session cookie configurable for
+  cross-site HTTPS (`FURROWCAST_COOKIE_SAMESITE=none` + `FURROWCAST_COOKIE_SECURE=1`).
 - v1.9 (2026-08-17): Nightly pipeline fully automated — `app/nightly.py` rewritten as NY-scoped pipeline (NWS + Open-Meteo + USDM + soil spin-up + advisory regeneration in one run), logging to `ingest_runs` (`nightly_pipeline`). New `POST /api/admin/refresh` (auth-protected on-demand trigger), `data_as_of` on advisory responses and `last_pipeline_at`/status on `/api/stats`; dashboard shows "Data as of <date>". Local cron runner `scripts/nightly.sh`; GitHub Actions workflow bumped to Python 3.12.
 - v1.8 (2026-08-17): Dashboard demo fixes — `daily_historical` re-backfilled so all 62 NY counties have real last-7-day rain/ET; `history.last_7d_*` are `null` (not `0.0`) when a county has no backfill, and the dashboard shows "Setting up data for this county". Desktop grid rebalanced (Weather History card no longer leaves dead space). DB restored to NY-only scope (62 NY + legacy seed rows).
 - v1.7 (2026-08-15): NEW YORK is now the SOLE product scope — NE/IA/KS retired as primary target. M6 Next.js dashboard complete (email/password login + logout, Drought/History/Soil cards). `daily_historical` backfilled for all 62 NY counties with real 7-day rain/ET.

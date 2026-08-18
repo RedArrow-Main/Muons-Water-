@@ -23,6 +23,20 @@ ph = PasswordHasher()
 SECRET_KEY = os.environ.get("SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
+# Cross-site cookies (frontend and API on different hosts, e.g. Render):
+# SameSite=None requires Secure=True, which means HTTPS Only.
+COOKIE_SAMESITE = os.environ.get("FURROWCAST_COOKIE_SAMESITE", "lax")
+COOKIE_SECURE = os.environ.get("FURROWCAST_COOKIE_SECURE", "0") == "1"
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        "session", token,
+        httponly=True,
+        samesite=COOKIE_SAMESITE,
+        secure=COOKIE_SECURE,
+        max_age=ACCESS_TOKEN_EXPIRE_DAYS * 86400,
+    )
 
 # ---------------------------------------------------------------------------
 # Rate limiter — 5 failed attempts per IP per 15 minutes
@@ -148,10 +162,7 @@ def register(body: dict, response: Response):
         ), {"email": email}).fetchone()
 
     token = create_token(user[0])
-    response.set_cookie(
-        "session", token,
-        httponly=True, samesite="lax", max_age=ACCESS_TOKEN_EXPIRE_DAYS * 86400,
-    )
+    _set_session_cookie(response, token)
     return {
         "id": user[0], "email": user[1], "phone": user[2],
         "phone_verified": user[3], "created_at": str(user[4]),
@@ -179,10 +190,7 @@ def login(body: dict, response: Response, request: Request):
         raise HTTPException(401, "Invalid email or password")
 
     token = create_token(user[0])
-    response.set_cookie(
-        "session", token,
-        httponly=True, samesite="lax", max_age=ACCESS_TOKEN_EXPIRE_DAYS * 86400,
-    )
+    _set_session_cookie(response, token)
     return {
         "id": user[0], "email": user[1], "phone": user[3],
         "phone_verified": user[4], "created_at": str(user[5]),
