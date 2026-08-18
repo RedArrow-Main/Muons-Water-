@@ -606,6 +606,10 @@ export default function DashboardPage() {
                 <SoilGauge pct={today.soil_pct} />
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
+                    <span className="font-mono text-sm text-gray-600">Soil type:</span>
+                    <span className="font-mono text-sm font-semibold text-gray-800 capitalize">{soil.type}</span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="font-mono text-sm text-gray-600">Current soil water:</span>
                     <span className="font-mono text-sm font-semibold text-gray-800">{today.soil_water.toFixed(1)}" of {crop.aw.toFixed(1)}"</span>
                   </div>
