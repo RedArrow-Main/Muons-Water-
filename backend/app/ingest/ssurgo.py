@@ -1,8 +1,10 @@
 """SSURGO soil AWC connector (precomputed dataset approach)."""
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+import re
+
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 STATE_DEFAULTS = {
     "AL": ("sandy loam", 0.14), "AK": ("loam", 0.20), "AZ": ("sandy loam", 0.13),
@@ -180,7 +182,139 @@ SOIL_DATA: dict[str, tuple[str, float]] = {
 }
 
 
-def load_soils(session: Session) -> int:
+# --------------------------------------------------------------------------
+# NY real-soil snapshot — captured 2026-08-18 from SSURGO via SoilWeb (UC
+# Davis) at each county's centroid. texture = dominant map-unit texture;
+# awc = Available Water Storage (0-100cm) / 100, in in/in. Counties whose
+# dominant map unit has no simple texture class (rocky complexes, urban land,
+# water, unsampled endpoints) fall back to STATE_DEFAULTS below. 41 of 62 NY
+# counties have real values; the rest keep ("silt loam", 0.18). Refresh
+# live via refresh_county_soils().
+# --------------------------------------------------------------------------
+NY_COUNTY_SSURGO: dict[str, tuple[str, float]] = {
+    "36001": ("silt loam", 0.1633),  # Albany
+    "36003": ("gravelly silt loam", 0.1264),  # Allegany
+    "36011": ("loam", 0.1349),  # Cayuga
+    "36013": ("silt loam", 0.1705),  # Chautauqua
+    "36015": ("gravelly silt loam", 0.0981),  # Chemung
+    "36017": ("channery silt loam", 0.0775),  # Chenango
+    "36019": ("loamy fine sand", 0.0630),  # Clinton
+    "36021": ("channery silt loam", 0.0446),  # Columbia
+    "36023": ("channery silt loam", 0.0825),  # Cortland
+    "36029": ("silt loam", 0.1183),  # Erie
+    "36037": ("mucky very fine sandy loam", 0.1616),  # Genesee
+    "36039": ("silt loam", 0.0768),  # Greene
+    "36041": ("fine sandy loam", 0.1322),  # Hamilton
+    "36045": ("silty clay", 0.1420),  # Jefferson
+    "36047": ("sandy loam", 0.1563),  # Kings
+    "36049": ("loam", 0.1420),  # Lewis
+    "36053": ("mucky silt loam", 0.1590),  # Madison
+    "36055": ("silt loam", 0.1439),  # Monroe
+    "36057": ("silt loam", 0.0842),  # Montgomery
+    "36059": ("silt loam", 0.2008),  # Nassau
+    "36063": ("silt loam", 0.1470),  # Niagara
+    "36067": ("silt loam", 0.1854),  # Onondaga
+    "36069": ("loam", 0.1378),  # Ontario
+    "36071": ("gravelly silt loam", 0.0975),  # Orange
+    "36073": ("silt loam", 0.1470),  # Orleans
+    "36075": ("gravelly fine sandy loam", 0.0775),  # Oswego
+    "36083": ("very stony loam", 0.1358),  # Rensselaer
+    "36085": ("gravelly sandy loam", 0.0763),  # Richmond
+    "36091": ("fine sandy loam", 0.1059),  # Saratoga
+    "36097": ("gravelly silt loam", 0.1110),  # Schuyler
+    "36099": ("silt", 0.1341),  # Seneca
+    "36101": ("channery silt loam", 0.0775),  # Steuben
+    "36103": ("loam", 0.0998),  # Suffolk
+    "36105": ("muck", 0.4000),  # Sullivan
+    "36107": ("flaggy silt loam", 0.1210),  # Tioga
+    "36109": ("channery silt loam", 0.1071),  # Tompkins
+    "36111": ("gravelly loam", 0.0500),  # Ulster
+    "36115": ("silty clay loam", 0.1099),  # Washington
+    "36117": ("gravelly loam", 0.1297),  # Wayne
+    "36121": ("channery silt loam", 0.0911),  # Wyoming
+    "36123": ("channery silt", 0.0995),  # Yates
+}
+
+SOILWEB_MAPUNIT_URL = (
+    "https://casoilresource.lawr.ucdavis.edu/gmap/get_mapunit_data.php"
+    "?lat={lat}&lon={lon}"
+)
+_TEXTURE_VOCAB = (
+    "loam", "loamy", "sand", "sandy", "silt", "silty", "clay", "clayey",
+    "muck", "mucky", "fine", "coarse", "gravelly", "very", "extremely",
+    "stony", "cobbly", "channery", "shaly", "flaggy", "mottled",
+)
+_TEXTURE_TOKEN_RE = re.compile(
+    "|".join(r"\b" + w + r"\b" for w in _TEXTURE_VOCAB), re.IGNORECASE
+)
+_TEXTURE_BASE_RE = re.compile(r"\b(loam|sand|clay|silt|muck)\w*\s*$", re.IGNORECASE)
+_AWS_RE = re.compile(
+    r"Available Water Storage \(0-100cm\):.*?([\d.]+)\s*cm", re.DOTALL | re.IGNORECASE
+)
+
+
+def _texture_from_map_unit(mu_name: str | None) -> str | None:
+    """Pull the dominant texture phrase from an SSURGO map-unit name.
+
+    Example: "Hudson silt loam, 2 to 6 percent slopes (HuB)" -> "silt loam".
+    Returns None for units with no simple texture class (urban land, rock
+    outcrop, water, organic complexes we cannot name).
+    """
+    if not mu_name:
+        return None
+    body = mu_name.split("(")[0]
+    body = re.sub(
+        r",?\s*\d+(?:\.\d+)?\s*to\s*\d+(?:\.\d+)?\s*percent slopes?\s*",
+        " ",
+        body,
+    )
+    body = re.sub(r"\s+", " ", body).strip()
+    tokens = body.split()
+    runs: list[str] = []
+    i = 0
+    while i < len(tokens):
+        if _TEXTURE_TOKEN_RE.match(tokens[i]):
+            j = i
+            while j < len(tokens) and _TEXTURE_TOKEN_RE.match(tokens[j]):
+                j += 1
+            runs.append(" ".join(tokens[i:j]).lower())
+            i = j
+        else:
+            i += 1
+    for phrase in reversed(runs):
+        if _TEXTURE_BASE_RE.search(phrase):
+            return phrase
+    return None
+
+
+def fetch_soilweb_soil(lat: float, lon: float) -> tuple[str | None, float | None]:
+    """Live SSURGO dominant-soil lookup at a point via SoilWeb.
+
+    Returns (texture, awc in in/in) or (None, None) when the endpoint is
+    unreachable or the dominant map unit has no parseable texture.
+    """
+    import httpx
+
+    url = SOILWEB_MAPUNIT_URL.format(lat=lat, lon=lon)
+    try:
+        html = httpx.get(url, timeout=30).text
+    except httpx.HTTPError:
+        return None, None
+    m = re.search(r'class="mu-name">([^<]+)</span>', html)
+    if not m:
+        return None, None
+    texture = _texture_from_map_unit(m.group(1).strip())
+    aws = _AWS_RE.search(html)
+    awc = round(float(aws.group(1)) / 100.0, 4) if aws else None
+    return (texture, awc) if texture else (None, None)
+
+
+def refresh_county_soils(session: Session, states: list[str] | None = None) -> int:
+    """Live-refresh the soils table from SSURGO for the counties in `states`.
+
+    Pass states=None to refresh every county. Counties whose live lookup
+    returns nothing usable keep their precomputed snapshot value.
+    """
     from .counties_data import get_counties
 
     stmt = text("""
@@ -192,13 +326,50 @@ def load_soils(session: Session) -> int:
     """)
 
     count = 0
+    failed = 0
+    for county in get_counties():
+        if states and county["state"] not in states:
+            continue
+        texture, awc = fetch_soilweb_soil(county["latitude"], county["longitude"])
+        if texture is None or awc is None:
+            failed += 1
+            texture, awc = (
+                NY_COUNTY_SSURGO.get(county["fips"])
+                or SOIL_DATA.get(county["fips"])
+                or STATE_DEFAULTS[county["state"]]
+            )
+        session.execute(stmt, {"fips": county["fips"], "soil": texture, "awc": awc})
+        count += 1
+    session.commit()
+    print(f"Upserted {count} soil records (live SSURGO; {failed} fell back to snapshot)")
+    return count
+
+
+def load_soils(session: Session) -> int:
+    from .counties_data import get_counties
+
+    stmt = text("""
+        INSERT INTO soils (county_fips, soil_type, awc)
+        VALUES (:fips, :soil, :awc)
+        ON CONFLICT (county_fips) DO UPDATE SET
+            soil_type = EXCLUDED.soil_type,
+            awc = EXCLUDED.awc
+    """)
+
+    known_fips = {
+        row[0] for row in session.execute(text("SELECT fips FROM counties"))
+    }
+    count = 0
     for county in get_counties():
         fips = county["fips"]
+        if fips not in known_fips:
+            continue
         state = county["state"]
-        if fips in SOIL_DATA:
-            soil_type, awc = SOIL_DATA[fips]
-        else:
-            soil_type, awc = STATE_DEFAULTS[state]
+        soil_type, awc = (
+            NY_COUNTY_SSURGO.get(fips)
+            or SOIL_DATA.get(fips)
+            or STATE_DEFAULTS[state]
+        )
         session.execute(stmt, {"fips": fips, "soil": soil_type, "awc": awc})
         count += 1
     session.commit()

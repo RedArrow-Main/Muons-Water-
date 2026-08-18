@@ -1,11 +1,15 @@
 # API.md - API Contracts
-<!-- DOC VERSION: v1.5 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
+<!-- DOC VERSION: v1.6 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
 
 ## A.4 Contracts
 
 This file contains the API contracts for the furrowcast project.
 
 ## Changelog
+- v1.6 (2026-08-18): `GET /api/advisory/{fips}` now sources `soil.type` /
+  `soil.awc` from the `soils` table (real per-county SSURGO values). The
+  regional estimator is used only when a county has no soils row. Response
+  shape is unchanged.
 - v1.5 (2026-08-18): Crop Library rotated to NY scope — `cotton`, `sorghum`,
   `peanuts` removed; `cabbage`, `onions`, `sweet corn` added (FAO-56 reference
   values). `GET /api/crops` and `crop_id` validation now cover the NY 9.

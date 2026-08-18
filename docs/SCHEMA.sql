@@ -1,4 +1,4 @@
--- SCHEMA.sql — furrowcast v1.8 (NY crop rotation + per-county soils)
+-- SCHEMA.sql — furrowcast v1.9 (NY crop rotation + real per-county soils)
 -- Source of truth for the database schema.
 -- SQLAlchemy models in app/db/models.py must match this file exactly.
 
@@ -41,6 +41,10 @@ CREATE TABLE crops (
 
 -- ─────────────────────────────────────────────────────────────────────
 -- soils — dominant soil type per county (SSURGO simplification)
+-- v1.9: New York counties carry real SSURGO values — texture + awc per
+--       county (41/62 from a 2026-08-18 SoilWeb snapshot, rest state
+--       defaults); loaded by app/ingest/ssurgo.py::load_soils /
+--       db.bootstrap. USED by /api/advisory/{fips} (DB-first).
 -- ─────────────────────────────────────────────────────────────────────
 CREATE TABLE soils (
     county_fips     VARCHAR(5)   NOT NULL REFERENCES counties(fips),

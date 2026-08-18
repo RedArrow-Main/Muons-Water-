@@ -1,5 +1,5 @@
 # FURROWCAST — PRODUCT SPECIFICATION
-<!-- DOC VERSION: v1.12 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
+<!-- DOC VERSION: v1.13 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
 
 ## 1 · Product
 County-level planting-window and water-budget advisories for farmers across New York (62 counties),
@@ -18,7 +18,7 @@ Value before friction; the phone number is the identity.
 | NOAA NWS API | 7-day grid forecast | primary; points→gridpoints |
 | Open-Meteo | historical 1995–2025 + forecast fallback | archive for GDD/SPI |
 | USDM API (drought.gov) | weekly county D0–D4 | authoritative drought |
-| SSURGO | soil AWC + texture | county-dominant in v1 |
+| SSURGO (via SoilWeb) | soil AWC + texture | real per-county NY snapshot in `soils` (41/62 counties captured 2026-08-18, dominant map-unit texture + AWS(0-100cm)/100); rest use state defaults. Live refresh: `refresh_county_soils()` |
 | NRCS SCAN | measured soil moisture | calibration ground-truth |
 | FAO-56 | crop coefficient (Kc) tables | public agronomy standard |
 
@@ -178,6 +178,14 @@ No native app (gated Jan 2027) · no field polygons (v2) · no MMS · no blog ·
 no standalone chatbot · no payments at signup (free tier first).
 
 ## Changelog
+- v1.13 (2026-08-18): Real per-county NY soils — `app/ingest/ssurgo.py`
+  carries a 41/62-county SSURGO snapshot captured 2026-08-18 via SoilWeb
+  (dominant map-unit texture + Available Water Storage 0-100cm / 100),
+  with state-default fallback for the rest. `load_soils` + raw bootstrap
+  seed the `soils` table from it. `/api/advisory/{fips}` now sources
+  `soil.type`/`soil.awc` from the `soils` table (DB is the source of truth);
+  the regional estimator is reached only for unseeded counties.
+  `refresh_county_soils()` re-pulls live SSURGO when needed.
 - v1.12 (2026-08-18): Crop Library rotated to the New York scope — `cotton`,
   `sorghum`, `peanuts` retired (not grown commercially in NY); `cabbage`,
   `onions`, `sweet corn` added (FAO-56 reference values, pending agronomist

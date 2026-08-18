@@ -11,8 +11,6 @@ forecasts, history, spin-up and advisories.
 """
 from __future__ import annotations
 
-import os
-
 from dotenv import load_dotenv
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -77,9 +75,12 @@ def bootstrap(session: Session) -> dict:
         results["crops"] += 1
 
     # --- soils for NY ---
+    from app.ingest.ssurgo import NY_COUNTY_SSURGO
     for s in get_soil_defaults():
         if s["county_fips"] not in {c["fips"] for c in get_counties() if c["state"] == "NY"}:
             continue
+        if s["county_fips"] in NY_COUNTY_SSURGO:
+            s["soil_type"], s["awc"] = NY_COUNTY_SSURGO[s["county_fips"]]
         session.execute(text("""
             INSERT INTO soils (county_fips, soil_type, awc)
             VALUES (:fips, :soil, :awc)

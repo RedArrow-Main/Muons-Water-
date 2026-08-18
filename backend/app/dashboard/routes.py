@@ -18,13 +18,19 @@ from app.db.connection import engine
 from app.engine.gdd import gdd_daily
 from app.engine.growth import (
     adjusted_mad as stage_adjusted_mad,
+)
+from app.engine.growth import (
     cumulative_gdd as accumulate_gdd,
+)
+from app.engine.growth import (
     gdd_fraction,
     growth_stage,
     stage_label,
 )
 from app.engine.water_balance import (
     CROP_PARAMS as ENGINE_CROP_PARAMS,
+)
+from app.engine.water_balance import (
     compute_etc,
     refill_amount,
     should_irrigate,
@@ -69,11 +75,12 @@ def _fetch_json(url: str, timeout: int = 15) -> dict | None:
 
 
 def _get_soil_awc(lat: float, lon: float) -> tuple[str, float]:
-    """Estimate soil AWC from SSURGO-derived regional lookup for NE/IA/KS.
+    """Regional soil AWC estimator (fallback when a county has no soils row).
 
     Uses a deterministic hash of lat/lon combined with regional soil science
-    knowledge. SSURGO API is not reliably accessible at runtime, so this
-    provides county-specific realistic values based on known soil patterns.
+    knowledge, so the same county always gets the same value. The advisory
+    route prefers the real per-county soils table first; this is only reached
+    for unseeded counties.
 
     Returns (soil_type, awc_in_per_in).
     """
@@ -329,8 +336,17 @@ def get_advisory(
     root_depth = crop["root_depth_in"]
     kc_mid = crop["kc_mid"]
 
-    # 3. Soil AWC — fetch live from SSURGO
-    soil_type, awc = _get_soil_awc(lat, lon)
+    # 3. Soil AWC — real county value from the soils table (seeded by the
+    #    SSURGO ingest connector); fall back to the regional estimator only
+    #    when the county has no seed row.
+    with Session(engine) as s:
+        soil = s.execute(text(
+            "SELECT soil_type, awc FROM soils WHERE county_fips = :f"
+        ), {"f": fips}).fetchone()
+    if soil:
+        soil_type, awc = soil[0], float(soil[1])
+    else:
+        soil_type, awc = _get_soil_awc(lat, lon)
     aw = root_depth * awc
 
     # 4. Growth stage — GDD from planting_date → yesterday (historical temps)

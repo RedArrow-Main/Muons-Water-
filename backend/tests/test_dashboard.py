@@ -104,6 +104,14 @@ def test_get_advisory_story_ia():
     assert data["county"]["state"] == "IA"
 
 
+def test_get_advisory_uses_real_soil_from_db():
+    r = client.get("/api/advisory/36029")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["soil"]["type"] == "silt loam"
+    assert abs(data["soil"]["awc"] - 0.1183) < 1e-4
+
+
 def test_get_advisory_not_found():
     r = client.get("/api/advisory/00000")
     assert r.status_code == 404
