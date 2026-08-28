@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.auth.routes import require_auth
 from app.db.connection import engine
 from app.engine.gdd import gdd_daily
+from app.ingest.ssurgo import STATE_DEFAULTS as SOIL_STATE_DEFAULTS
 from app.engine.growth import (
     adjusted_mad as stage_adjusted_mad,
 )
@@ -40,20 +41,33 @@ from app.engine.water_balance import (
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
 _FIPS_RE = re.compile(r"^\d{5}$")
+_STATE_TZ = {
+    "NY": "America/New_York",
+    "NE": "America/Chicago",
+    "IA": "America/Chicago",
+    "KS": "America/Chicago",
+}
+
+
+def _tz_for_state(state: str) -> str:
+    """Open-Meteo daily buckets are timezone-sensitive; NY is Eastern."""
+    return _STATE_TZ.get(state, "America/New_York")
+
 
 OPEN_METEO_FORECAST = (
     "https://api.open-meteo.com/v1/forecast"
     "?latitude={lat}&longitude={lon}"
     "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration"
-    "&temperature_unit=fahrenheit&precipitation_unit=inch&forecast_days=7&timezone=America/Chicago"
+    "&temperature_unit=fahrenheit&precipitation_unit=inch&forecast_days=7&timezone={tz}"
 )
+
 
 OPEN_METEO_HISTORY = (
     "https://archive-api.open-meteo.com/v1/archive"
     "?latitude={lat}&longitude={lon}"
     "&start_date={start}&end_date={end}"
     "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration"
-    "&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=America/Chicago"
+    "&temperature_unit=fahrenheit&precipitation_unit=inch&timezone={tz}"
 )
 
 # SSURGO: get dominant component AWC for a lat/lon
@@ -74,16 +88,26 @@ def _fetch_json(url: str, timeout: int = 15) -> dict | None:
         return None
 
 
-def _get_soil_awc(lat: float, lon: float) -> tuple[str, float]:
-    """Regional soil AWC estimator (fallback when a county has no soils row).
+def _get_soil_awc(state: str, lat: float, lon: float) -> tuple[str, float]:
+    """Soil AWC fallback for counties with no row in the `soils` table.
 
-    Uses a deterministic hash of lat/lon combined with regional soil science
-    knowledge, so the same county always gets the same value. The advisory
-    route prefers the real per-county soils table first; this is only reached
-    for unseeded counties.
+    NY (and any other state without a hand-tuned sub-region table below)
+    uses the per-state SSURGO default from `app.ingest.ssurgo.STATE_DEFAULTS`
+    — the same source `load_soils`/`bootstrap`/`refresh_county_soils` use to
+    seed unsampled counties (SPEC.md v1.13: "rest use state defaults"). This
+    keeps the dashboard's last-resort fallback consistent with the DB seed
+    instead of silently substituting a different state's soil values.
+
+    The lat/lon quadrant buckets below are a legacy finer-grained estimate
+    for the original Corn Belt pilot states (KS/NE/IA) and are deterministic
+    (hashed from coordinates) rather than measured — kept only for those
+    three states pending a real per-county SSURGO snapshot like NY's.
 
     Returns (soil_type, awc_in_per_in).
     """
+    if state not in ("KS", "NE", "IA"):
+        return SOIL_STATE_DEFAULTS.get(state, ("silt loam", 0.18))
+
     # Deterministic seed from coordinates so same county always gets same value
     seed = int(abs(lat * 1000 + lon * 7) % 100)
 
@@ -178,13 +202,14 @@ def _crop_params(crop_id: str) -> dict | None:
     with Session(engine) as s:
         row = s.execute(text(
             "SELECT id, base_temp_f, gdd_total, root_depth_in, mad_fraction, "
-            "kc_initial, kc_mid, kc_end FROM crops WHERE id = :id"
+            "kc_initial, kc_mid, kc_end, stage_days FROM crops WHERE id = :id"
         ), {"id": crop_id}).fetchone()
     if row:
         return {
             "id": row[0], "base_temp_f": row[1], "gdd_total": row[2],
             "root_depth_in": row[3], "mad_fraction": row[4],
             "kc_initial": row[5], "kc_mid": row[6], "kc_end": row[7],
+            "stage_days": row[8],
         }
     fallback = ENGINE_CROP_PARAMS.get(crop_id)
     if fallback:
@@ -198,7 +223,8 @@ def _crop_params(crop_id: str) -> dict | None:
 
 
 def _historical_temps(fips: str, lat: float, lon: float,
-                      start_date: str, end_date: str) -> dict[str, tuple]:
+                      start_date: str, end_date: str,
+                      tz: str = "America/New_York") -> dict[str, tuple]:
     """Daily temps {date: (tmax_f, tmin_f)} across [start_date, end_date].
 
     Backfilled `daily_historical` rows are authoritative; a live Open-Meteo
@@ -213,7 +239,7 @@ def _historical_temps(fips: str, lat: float, lon: float,
     db_days = {r[0]: (r[1], r[2]) for r in rows
                if r[1] is not None and r[2] is not None}
 
-    url = OPEN_METEO_HISTORY.format(lat=lat, lon=lon, start=start_date, end=end_date)
+    url = OPEN_METEO_HISTORY.format(lat=lat, lon=lon, start=start_date, end=end_date, tz=tz)
     data = _fetch_json(url, timeout=20)
     if data and "daily" in data:
         h = data["daily"]
@@ -336,29 +362,50 @@ def get_advisory(
     root_depth = crop["root_depth_in"]
     kc_mid = crop["kc_mid"]
 
+    # Calendar days to maturity ≈ sum of the crop's stage-day splits
+    # (initial + development + mid + late). Falls back to 120 (corn) if unset.
+    maturity_days = 120
+    if crop.get("stage_days"):
+        try:
+            maturity_days = sum(
+                int(x) for x in str(crop["stage_days"]).split(",") if x.strip()
+            )
+        except (ValueError, TypeError):
+            maturity_days = 120
+
     # 3. Soil AWC — real county value from the soils table (seeded by the
     #    SSURGO ingest connector); fall back to the regional estimator only
-    #    when the county has no seed row.
+    #    when the county has no seed row. Also pull the latest USDM drought
+    #    classification to surface on the dashboard (SPEC §3).
     with Session(engine) as s:
         soil = s.execute(text(
             "SELECT soil_type, awc FROM soils WHERE county_fips = :f"
         ), {"f": fips}).fetchone()
+        drow = s.execute(text(
+            "SELECT usdm_level, week_ending FROM drought_status "
+            "WHERE county_fips = :f ORDER BY week_ending DESC LIMIT 1"
+        ), {"f": fips}).fetchone()
     if soil:
         soil_type, awc = soil[0], float(soil[1])
     else:
-        soil_type, awc = _get_soil_awc(lat, lon)
+        soil_type, awc = _get_soil_awc(state, lat, lon)
     aw = root_depth * awc
+    drought = (
+        {"level": drow[0], "week_ending": drow[1]} if drow else None
+    )
 
     # 4. Growth stage — GDD from planting_date → yesterday (historical temps)
     if not planting_date:
         def _fmt_julian(j: int) -> str:
             d = datetime(2026, 1, 1).toordinal() + j - 1
             return datetime.fromordinal(d).strftime("%Y-%m-%d")
-        planting_date = _fmt_julian(frost_50 - 120)  # latest safe plant date
+        planting_date = _fmt_julian(frost_50 - maturity_days)  # latest safe plant date
 
     today = datetime.now()
     yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
-    temps = _historical_temps(fips_db, lat, lon, planting_date, yesterday)
+    temps = _historical_temps(
+        fips_db, lat, lon, planting_date, yesterday, tz=_tz_for_state(state)
+    )
     series = [temps[d] for d in sorted(temps)
               if temps[d][0] is not None and temps[d][1] is not None]
     cum_gdd = accumulate_gdd(series, base_temp)
@@ -367,7 +414,7 @@ def get_advisory(
     mad = stage_adjusted_mad(base_mad, frac)
 
     # 5. 7-day forecast — fetch LIVE from Open-Meteo
-    forecast_url = OPEN_METEO_FORECAST.format(lat=lat, lon=lon)
+    forecast_url = OPEN_METEO_FORECAST.format(lat=lat, lon=lon, tz=_tz_for_state(state))
     fc_data = _fetch_json(forecast_url, timeout=15)
 
     if not fc_data or "daily" not in fc_data:
@@ -383,7 +430,9 @@ def get_advisory(
     # 6. Historical averages — fetch last 30 days LIVE
     hist_start = (today - timedelta(days=30)).strftime("%Y-%m-%d")
     hist_end = today.strftime("%Y-%m-%d")
-    hist_url = OPEN_METEO_HISTORY.format(lat=lat, lon=lon, start=hist_start, end=hist_end)
+    hist_url = OPEN_METEO_HISTORY.format(
+        lat=lat, lon=lon, start=hist_start, end=hist_end, tz=_tz_for_state(state)
+    )
     hist_data = _fetch_json(hist_url, timeout=15)
 
     hist_avg_high = None
@@ -507,12 +556,12 @@ def get_advisory(
             "last_7d_rain": last_7d_rain,
             "last_7d_et": last_7d_et,
         },
-        "drought": None,
+        "drought": drought,
         "outbox": [],
         "planting_window": {
             "frost_50pct": fmt_j(frost_50),
-            "corn_start": fmt_j(frost_50 - 130),
-            "corn_end": fmt_j(frost_50 - 120),
+            "corn_start": fmt_j(frost_50 - (maturity_days + 10)),
+            "corn_end": fmt_j(frost_50 - maturity_days),
         },
         "data_as_of": _last_pipeline_info(),
     }
