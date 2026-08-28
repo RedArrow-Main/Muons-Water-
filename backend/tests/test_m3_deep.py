@@ -572,15 +572,20 @@ class TestPhase6EndpointDeepTest:
             "email": "deeptest2@test.com",
             "password": "testpass123",
         })
+        # Re-attach the session cookie (mirror dashboard test pattern; TestClient
+        # does not reliably auto-propagate the Set-Cookie across requests).
+        tok = self.client.cookies.get("session")
+        if tok:
+            self.client.cookies.set("session", tok)
 
-    def test_advisory_cedar_ne(self):
-        """GET /api/advisory/31027 returns on-the-fly format."""
-        resp = self.client.get("/api/advisory/31027")
+    def test_advisory_ny_county(self):
+        """GET /api/advisory/36029 (Erie, NY) returns on-the-fly format."""
+        resp = self.client.get("/api/advisory/36029")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["county"]["fips"] == "31027"
-        assert data["county"]["name"] == "Cedar"
-        assert data["county"]["state"] == "NE"
+        assert data["county"]["fips"] == "36029"
+        assert data["county"]["name"] == "Erie"
+        assert data["county"]["state"] == "NY"
         assert "soil" in data
         assert "crop" in data
         assert "forecast" in data
@@ -623,7 +628,7 @@ class TestPhase6EndpointDeepTest:
 
     def test_advisory_forecast_structure(self):
         """Forecast entries have required fields."""
-        resp = self.client.get("/api/advisory/31027")
+        resp = self.client.get("/api/advisory/36029")
         data = resp.json()
         if data["forecast"]:
             fc = data["forecast"][0]
@@ -633,7 +638,7 @@ class TestPhase6EndpointDeepTest:
 
     def test_advisory_today_structure(self):
         """Today entry has required fields."""
-        resp = self.client.get("/api/advisory/31027")
+        resp = self.client.get("/api/advisory/36029")
         data = resp.json()
         today = data["today"]
         assert "gdd" in today
@@ -644,7 +649,7 @@ class TestPhase6EndpointDeepTest:
 
     def test_advisory_planting_window(self):
         """Planting window has frost_50pct."""
-        resp = self.client.get("/api/advisory/31027")
+        resp = self.client.get("/api/advisory/36029")
         data = resp.json()
         pw = data["planting_window"]
         assert "frost_50pct" in pw
