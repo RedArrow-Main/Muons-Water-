@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session
 from app.auth.routes import require_auth
 from app.db.connection import engine
 from app.engine.gdd import gdd_daily
-from app.ingest.ssurgo import STATE_DEFAULTS as SOIL_STATE_DEFAULTS
 from app.engine.growth import (
     adjusted_mad as stage_adjusted_mad,
 )
@@ -37,6 +36,7 @@ from app.engine.water_balance import (
     should_irrigate,
     soil_water_step,
 )
+from app.ingest.ssurgo import STATE_DEFAULTS as SOIL_STATE_DEFAULTS
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -84,7 +84,7 @@ def _fetch_json(url: str, timeout: int = 15) -> dict | None:
             resp = client.get(url, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -316,7 +316,7 @@ def get_advisory(
     fips: str = Path(pattern=r"^\d{5}$"),
     crop_id: str | None = Query(default=None),
     planting_date: str | None = Query(default=None),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_auth),  # noqa: B008
 ):
     """Return full advisory for a county — everything computed in real-time.
 
@@ -397,11 +397,11 @@ def get_advisory(
     # 4. Growth stage — GDD from planting_date → yesterday (historical temps)
     if not planting_date:
         def _fmt_julian(j: int) -> str:
-            d = datetime(2026, 1, 1).toordinal() + j - 1
+            d = datetime(2026, 1, 1).toordinal() + j - 1  # noqa: DTZ001
             return datetime.fromordinal(d).strftime("%Y-%m-%d")
         planting_date = _fmt_julian(frost_50 - maturity_days)  # latest safe plant date
 
-    today = datetime.now()
+    today = datetime.now()  # noqa: DTZ005
     yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
     temps = _historical_temps(
         fips_db, lat, lon, planting_date, yesterday, tz=_tz_for_state(state)
@@ -514,7 +514,7 @@ def get_advisory(
 
     # Planting window
     def fmt_j(j):
-        d = datetime(2026, 1, 1).toordinal() + j - 1
+        d = datetime(2026, 1, 1).toordinal() + j - 1  # noqa: DTZ001
         return datetime.fromordinal(d).strftime("%Y-%m-%d")
 
     return {
@@ -574,7 +574,7 @@ def get_advisory(
 @router.get("/outbox/{fips}")
 def get_outbox(
     fips: str = Path(pattern=r"^\d{5}$"),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_auth),  # noqa: B008
 ):
     """Return recent SMS outbox entries for a county."""
     with Session(engine) as s:
@@ -589,7 +589,7 @@ def get_outbox(
 # GET /api/stats — pipeline/catalog statistics (auth required)
 # ---------------------------------------------------------------------------
 @router.get("/stats")
-def get_stats(user: dict = Depends(require_auth)):
+def get_stats(user: dict = Depends(require_auth)):  # noqa: B008
     """Return high-level counts across the dataset."""
     with Session(engine) as s:
         counties = s.execute(text("SELECT COUNT(*) FROM counties")).scalar() or 0
@@ -609,7 +609,7 @@ def get_stats(user: dict = Depends(require_auth)):
 @router.post("/admin/refresh")
 def admin_refresh(
     body: dict | None = None,
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_auth),  # noqa: B008
 ):
     """Trigger the full nightly pipeline now.
 
