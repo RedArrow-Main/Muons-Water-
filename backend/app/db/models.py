@@ -8,9 +8,11 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     func,
+    true,
 )
 from sqlalchemy.orm import relationship
 
@@ -175,9 +177,9 @@ class DailyRecord(Base):
         Integer, ForeignKey("field_cells.id"), nullable=False
     )
     record_date = Column(String(10), nullable=False)  # YYYY-MM-DD
-    et0_mm = Column(Float, nullable=True)
-    rainfall_mm = Column(Float, nullable=True)
-    irrigation_mm = Column(Float, nullable=True)
+    et0_in = Column(Float, nullable=True)
+    rainfall_in = Column(Float, nullable=True)
+    irrigation_in = Column(Float, nullable=True)
     soil_moisture_pct = Column(Float, nullable=True)
     gdd = Column(Float, nullable=True)
     growth_stage = Column(String(20), nullable=True)
@@ -238,4 +240,55 @@ class Advisory(Base):
     generated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     def __repr__(self) -> str:
-        return f"<Advisory {self.county_fips} {self.severity} {self.decision}>"
+        return f"<Advisory {self.county_fips} {self.severity}>"
+
+
+class Farm(Base):
+    """A user's farm in a single county (one per user per county)."""
+    __tablename__ = "farms"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    county_fips = Column(
+        String(5), ForeignKey("counties.fips"), nullable=False
+    )
+    name = Column(String(200), nullable=False)
+    acres = Column(Numeric, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<Farm {self.id} {self.name}>"
+
+
+class FarmCrop(Base):
+    """M:N association of a farm to the crops it grows (+ planting date)."""
+    __tablename__ = "farm_crops"
+
+    farm_id = Column(
+        Integer, ForeignKey("farms.id", ondelete="CASCADE"), primary_key=True
+    )
+    crop_id = Column(String(20), ForeignKey("crops.id"), primary_key=True)
+    planting_date = Column(String(10), nullable=True)  # YYYY-MM-DD
+
+    def __repr__(self) -> str:
+        return f"<FarmCrop {self.farm_id} {self.crop_id}>"
+
+
+class Subscriber(Base):
+    """SMS advisory subscriber — drives the optional nightly SMS send."""
+    __tablename__ = "subscribers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    county_fips = Column(
+        String(5), ForeignKey("counties.fips"), nullable=False
+    )
+    phone = Column(String(20), nullable=False)
+    active = Column(Boolean, nullable=False, server_default=true())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<Subscriber {self.id} {self.county_fips}>"

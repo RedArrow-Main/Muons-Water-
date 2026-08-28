@@ -14,8 +14,8 @@ from app.advisor.compose import build_advisory
 from app.advisor.narrative import build_narrative
 from app.db.connection import engine
 
-# Scope: v1 targets Corn Belt states (NE, IA, KS) plus New York (NY pivot)
-INSCOPE_STATES = {"NE", "IA", "KS", "NY"}
+# Scope: New York is the sole product target (SPEC.md v1.8 / D-006).
+INSCOPE_STATES = {"NY"}
 
 
 def generate_advisory(
@@ -68,7 +68,7 @@ def _build_water_state(
     if not county:
         return None
 
-    # Scope check — only process in-scope states (NE, IA, KS)
+    # Scope check — only process in-scope states (NY)
     if county[2] not in INSCOPE_STATES:
         return None
 

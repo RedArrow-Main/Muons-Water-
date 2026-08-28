@@ -10,7 +10,11 @@ from alembic import context
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.db.connection import Base
-from app.db.models import County, Crop, Soil, FieldCell, DailyRecord  # noqa: F401
+from app.db.models import (  # noqa: F401
+    County, Crop, Soil, DailyForecast, DailyHistorical, DroughtStatus,
+    IngestRun, FieldCell, DailyRecord, Outbox, User, Advisory,
+    Farm, FarmCrop, Subscriber,
+)
 
 config = context.config
 

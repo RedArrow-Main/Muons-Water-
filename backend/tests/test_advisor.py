@@ -453,17 +453,17 @@ class TestDataSufficiencyGate:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FIX 3 TESTS — scope check (NE/IA/KS only)
+# FIX 3 TESTS — scope check (New York only)
 # ═══════════════════════════════════════════════════════════════════════
 
-INSCOPE_STATES = {"NE", "IA", "KS"}
+INSCOPE_STATES = {"NY"}
 
 
 class TestScopeCheck:
     """generate_all must only produce advisories for in-scope states."""
 
-    def test_generate_all_includes_ne_ia_ks(self):
-        """generate_all processes NE, IA, KS counties."""
+    def test_generate_all_includes_ny(self):
+        """generate_all processes NY counties."""
         # This is a structural test — verify the scope constant exists
         # and the logic references it. Full integration test needs DB.
         from app.advisor import service
@@ -472,7 +472,7 @@ class TestScopeCheck:
         assert hasattr(service, '_build_water_state')
 
     def test_out_of_scope_water_state_returns_none(self):
-        """_build_water_state returns None for non-NE/IA/KS county (unit test).
+        """_build_water_state returns None for non-NY county (unit test).
 
         This tests the structural guard — the function should check scope
         before querying forecast data. We test the compose layer here;
@@ -482,9 +482,8 @@ class TestScopeCheck:
         # but we verify the scope constant is defined and the narrative
         # does not produce advisories for out-of-scope counties.
         # The real test is in generate_all integration (see below).
-        assert "NE" in INSCOPE_STATES
-        assert "IA" in INSCOPE_STATES
-        assert "KS" in INSCOPE_STATES
+        assert "NY" in INSCOPE_STATES
+        assert "NE" not in INSCOPE_STATES
         assert "AK" not in INSCOPE_STATES
         assert "AL" not in INSCOPE_STATES
 

@@ -792,9 +792,8 @@ class TestPhase8Regression:
         assert a1["hash"] == a2["hash"]
 
     def test_scope_constant(self):
-        assert "NE" in INSCOPE_STATES
-        assert "IA" in INSCOPE_STATES
-        assert "KS" in INSCOPE_STATES
+        assert "NY" in INSCOPE_STATES
+        assert "NE" not in INSCOPE_STATES
         assert "AK" not in INSCOPE_STATES
         assert "AL" not in INSCOPE_STATES
 

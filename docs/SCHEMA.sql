@@ -1,6 +1,12 @@
--- SCHEMA.sql — furrowcast v1.9 (NY crop rotation + real per-county soils)
+-- SCHEMA.sql — furrowcast v1.15
 -- Source of truth for the database schema.
 -- SQLAlchemy models in app/db/models.py must match this file exactly.
+--
+-- Changelog:
+--   v1.15 (2026-08-28): Added `subscribers` table (drives optional nightly
+--          SMS send; fixes a missing-table crash in nightly.py::_send_sms_advisories).
+--          Renamed daily_records et0_mm/rainfall_mm/irrigation_mm -> *_in to match
+--          the inches-based engine contract (SPEC §4). Migration m9.
 
 CREATE EXTENSION IF NOT EXISTS postgis;
 
@@ -123,9 +129,9 @@ CREATE TABLE daily_records (
     id              SERIAL       PRIMARY KEY,
     cell_id         INTEGER      NOT NULL REFERENCES field_cells(id),
     record_date     VARCHAR(10)  NOT NULL,       -- YYYY-MM-DD
-    et0_mm          DOUBLE PRECISION,
-    rainfall_mm     DOUBLE PRECISION,
-    irrigation_mm   DOUBLE PRECISION,
+    et0_in          DOUBLE PRECISION,            -- engine works in inches (SPEC §4)
+    rainfall_in     DOUBLE PRECISION,
+    irrigation_in   DOUBLE PRECISION,
     soil_moisture_pct DOUBLE PRECISION,
     gdd             DOUBLE PRECISION,
     growth_stage    VARCHAR(20)
@@ -183,6 +189,19 @@ CREATE TABLE IF NOT EXISTS advisories (
 CREATE INDEX IF NOT EXISTS idx_advisories_fips_date ON advisories(county_fips, generated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_advisories_hash ON advisories(hash);
 CREATE INDEX IF NOT EXISTS idx_advisories_status ON advisories(status);
+
+-- ─────────────────────────────────────────────────────────────────────
+-- subscribers — SMS advisory recipients (drives optional nightly SMS)
+-- ─────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS subscribers (
+    id              SERIAL       PRIMARY KEY,
+    county_fips     VARCHAR(5)   NOT NULL REFERENCES counties(fips),
+    phone           VARCHAR(20)  NOT NULL,
+    active          BOOLEAN      NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscribers_fips ON subscribers(county_fips);
 
 -- ─────────────────────────────────────────────────────────────────────
 -- farms — one per user per county
