@@ -492,6 +492,7 @@ def get_advisory(
             today_etc = etc_val
             today_depletion = dep
             today_soil_pct = soil_water / aw * 100 if aw > 0 else 0
+            today_soil_water = soil_water
             today_action = should_irrigate(dep, mad)
             today_rain = rain or 0
 
@@ -541,11 +542,11 @@ def get_advisory(
         "today": {
             "gdd": round(today_gdd, 1),
             "etc": round(today_etc, 4),
-            "soil_water": round(soil_water, 3),
+            "soil_water": round(today_soil_water, 3),
             "soil_pct": round(today_soil_pct, 1),
             "depletion": round(today_depletion, 4),
             "action": today_action,
-            "irrigate_amount": round(refill_amount(soil_water, aw), 2) if today_action == "IRRIGATE" else 0,
+            "irrigate_amount": round(refill_amount(today_soil_water, aw), 2) if today_action == "IRRIGATE" else 0,
             "rain_today": round(today_rain, 2),
             "rain_7d": round(rain_7d, 2),
         },

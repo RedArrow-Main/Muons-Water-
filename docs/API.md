@@ -1,5 +1,5 @@
 # API.md - API Contracts
-<!-- DOC VERSION: v1.6 | LAST UPDATED: 2026-08-18 | OWNER: principal -->
+<!-- DOC VERSION: v1.7 | LAST UPDATED: 2026-08-29 | OWNER: principal -->
 
 ## A.4 Contracts
 
@@ -84,6 +84,14 @@ this endpoint always returns the rich dashboard format.
   `today`/`forecast` use this adjusted value.
 - `growth_stage` ∈ `vegetative` · `pollination` · `grain_fill` · `maturity`.
 - `cumulative_gdd` is GDD accumulated from `planting_date` through yesterday.
+
+**`today` object:** a snapshot of the **current/forecast-day-0** state for the
+crop. Its fields are mutually consistent: `soil_water` (inches) and `soil_pct`
+(0–100) describe the same root-zone water content (`soil_pct ≈ soil_water / aw ×
+100`), and `depletion = 1 − soil_water / aw`. `soil_water` is the day-0 value
+(i.e. the same reference as `soil_pct`/`depletion`), NOT the end-of-forecast
+value. `action` is `IRRIGATE` when `depletion ≥ mad`, else `HOLD`;
+`irrigate_amount` is non-zero only on `IRRIGATE`.
 
 **Nulls:** `history.last_7d_rain` and `history.last_7d_et` are `null` when the
 county has no `daily_historical` rows in the last 7 days (history backfill not
