@@ -27,6 +27,7 @@ from app.engine.growth import (
     growth_stage,
     stage_label,
 )
+from app.engine.kc import kc_for_gdd_frac
 from app.engine.water_balance import (
     CROP_PARAMS as ENGINE_CROP_PARAMS,
 )
@@ -360,7 +361,6 @@ def get_advisory(
     gdd_to_maturity = crop["gdd_total"]
     base_mad = crop["mad_fraction"]
     root_depth = crop["root_depth_in"]
-    kc_mid = crop["kc_mid"]
 
     # Calendar days to maturity ≈ sum of the crop's stage-day splits
     # (initial + development + mid + late). Falls back to 120 (corn) if unset.
@@ -475,6 +475,7 @@ def get_advisory(
     today_soil_pct = 70.0
     today_action = "HOLD"
     today_rain = 0
+    cum_gdd = 0.0
 
     for i, date_str in enumerate(dates):
         tmax = tmax_list[i] if i < len(tmax_list) else None
@@ -483,7 +484,10 @@ def get_advisory(
         et0 = et0_list[i] if i < len(et0_list) else None
 
         gdd = gdd_daily(tmax, tmin, base_temp) if tmax and tmin else 0
-        etc_val = compute_etc(et0, kc_mid) if et0 else 0
+        cum_gdd += gdd
+        gdd_frac = cum_gdd / gdd_to_maturity if gdd_to_maturity > 0 else 0.0
+        stage_kc = kc_for_gdd_frac(crop_id, gdd_frac)
+        etc_val = compute_etc(et0, stage_kc) if et0 else 0
         soil_water = soil_water_step(soil_water, aw, rain or 0, 0, etc_val)
         dep = 1 - soil_water / aw if aw > 0 else 0
 

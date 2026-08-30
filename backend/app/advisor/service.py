@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.advisor.compose import build_advisory
 from app.advisor.narrative import build_narrative
 from app.db.connection import engine
+from app.engine.kc import kc_for_gdd_frac
 
 # Scope: New York is the sole product target (SPEC.md v1.8 / D-006).
 INSCOPE_STATES = {"NY"}
@@ -79,16 +80,26 @@ def _build_water_state(
     if not soil:
         return None
 
-    # Crop (corn default)
+    # Crop (corn default) — fetch gdd_to_maturity for curve lookup
     crop = session.execute(text(
-        "SELECT base_temp_f, root_depth_in, mad_fraction, kc_mid FROM crops WHERE id = 'corn'"
+        "SELECT base_temp_f, root_depth_in, mad_fraction, kc_mid, gdd_to_maturity "
+        "FROM crops WHERE id = 'corn'"
     )).fetchone()
     if not crop:
         return None
 
-    base_temp, root_depth, mad, kc_mid = crop
+    base_temp, root_depth, mad, _kc_mid, gdd_to_maturity = crop
     awc = soil[1]
     aw = root_depth * awc
+
+    # Cumulative GDD from planting to yesterday for growth-stage Kc
+    cum_gdd_row = session.execute(text(
+        "SELECT COALESCE(SUM(gdd), 0) FROM daily_historical "
+        "WHERE county_fips = :f AND obs_date < :d"
+    ), {"f": fips, "d": date}).fetchone()
+    cum_gdd = cum_gdd_row[0] if cum_gdd_row else 0.0
+    gdd_frac = cum_gdd / gdd_to_maturity if gdd_to_maturity > 0 else 0.0
+    stage_kc = kc_for_gdd_frac("corn", gdd_frac)
 
     # Latest soil water from daily_records or default to 60%
     prev_record = session.execute(text(
@@ -111,14 +122,14 @@ def _build_water_state(
         return None
 
     from app.engine.gdd import gdd_daily
-    from app.engine.water_balance import compute_etc, soil_water_step, refill_amount
+    from app.engine.water_balance import compute_etc, refill_amount, soil_water_step
 
     tmax, tmin = fc[0], fc[1]
     rain = fc[2] or 0
     et0 = fc[3]
 
     gdd_val = gdd_daily(tmax, tmin, base_temp)
-    etc_val = compute_etc(et0, kc_mid) if et0 else 0
+    etc_val = compute_etc(et0, stage_kc) if et0 else 0
 
     # Advance soil water
     sw_new = soil_water_step(sw, aw, rain, 0, etc_val)

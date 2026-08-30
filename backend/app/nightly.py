@@ -61,19 +61,20 @@ def _sync_cell_and_spinup(
     fips = county["fips"]
 
     crop = session.execute(text(
-        "SELECT base_temp_f, root_depth_in, mad_fraction, kc_mid "
+        "SELECT base_temp_f, root_depth_in, mad_fraction, kc_initial, kc_mid, kc_end, gdd_to_maturity "
         "FROM crops WHERE id = 'corn'"
     )).fetchone()
     if not crop:
         return False, "crop corn missing"
-    base_temp, root_depth, _mad, kc_mid = crop
+    base_temp, root_depth, _mad, kc_initial, _kc_mid, kc_end, _gdd_to_maturity = crop
 
     soil = session.execute(text(
-        "SELECT awc FROM soils WHERE county_fips = :f"
+        "SELECT soil_type, awc FROM soils WHERE county_fips = :f"
     ), {"f": fips}).fetchone()
     if not soil:
         return False, "no soil row"
-    aw = root_depth * soil[0]
+    soil_type, awc = soil
+    aw = root_depth * awc
 
     cell = session.execute(text(
         "SELECT id FROM field_cells WHERE county_fips = :f AND crop_id = 'corn' LIMIT 1"
@@ -82,7 +83,7 @@ def _sync_cell_and_spinup(
         session.execute(text(
             "INSERT INTO field_cells (county_fips, crop_id, row, col, soil_type, awc) "
             "VALUES (:f, 'corn', 0, 0, :soil_type, :awc)"
-        ), {"f": fips, "soil_type": soil[0], "awc": soil[0]})
+        ), {"f": fips, "soil_type": soil_type, "awc": awc})
         session.commit()
         cell = session.execute(text(
             "SELECT id FROM field_cells WHERE county_fips = :f AND crop_id = 'corn' LIMIT 1"
@@ -93,7 +94,9 @@ def _sync_cell_and_spinup(
     sw, _depletion = spinup_soil_moisture(
         weather_series=weather_series,
         aw=aw,
-        kc=kc_mid,
+        use_gdd_scaling=True,
+        kc_initial=kc_initial,
+        kc_end=kc_end,
         base_temp_f=base_temp,
     )
     soil_pct = sw / aw * 100 if aw > 0 else 0.0

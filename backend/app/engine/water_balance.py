@@ -1,6 +1,9 @@
 """Water balance calculations — ETc, soil water, irrigation decisions."""
 from __future__ import annotations
 
+from app.engine.gdd import gdd_daily
+from app.engine.kc import _CROP_PARAMS_DEFAULT, CROP_PARAMS, kc_for_gdd_frac
+
 
 def compute_etc(et0_in: float, kc: float) -> float:
     """Calculate crop evapotranspiration.
@@ -75,37 +78,12 @@ def refill_amount(sw_current: float, aw: float) -> float:
 # Season simulation — runs soil-water-balance over injected weather series
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Stage-weighted stress config
-# ---------------------------------------------------------------------------
-# Each stage is defined by (gdd_frac_low, gdd_frac_high, sensitivity_weight).
-# gdd_frac = cumulative_gdd / gdd_to_maturity for the crop.
-# The weight scales daily water-deficit contributions during that stage.
 STAGE_WEIGHTS: list[tuple[float, float, float]] = [
-    # (gdd_frac_low, gdd_frac_high, weight)
-    (0.00, 0.50, 0.4),   # Vegetative — low sensitivity
-    (0.50, 0.62, 1.5),   # Pollination (critical) — high sensitivity
-    (0.62, 0.90, 1.0),   # Grain fill — moderate sensitivity
-    (0.90, 1.00, 0.3),   # Maturity — low sensitivity
+    (0.00, 0.50, 0.4),
+    (0.50, 0.62, 1.5),
+    (0.62, 0.90, 1.0),
+    (0.90, 1.00, 0.3),
 ]
-
-# Crop parameters by ID:
-#   (base_temp_f, root_depth_in, mad_fraction, kc_initial, kc_mid, kc_end, gdd_to_maturity)
-CROP_PARAMS = {
-    "corn":      (50.0, 36.0, 0.50, 0.30, 1.15, 0.90, 2700),
-    "soy":       (50.0, 24.0, 0.50, 0.40, 1.10, 0.80, 2500),
-    "alfalfa":   (41.0, 30.0, 0.50, 0.40, 1.05, 0.85, 1800),
-    "cover":     (40.0, 10.0, 0.45, 0.30, 0.60, 0.55, 1200),
-    "potatoes":  (45.0, 30.0, 0.45, 0.45, 1.15, 0.75, 1600),
-    "sunflower": (46.0, 50.0, 0.50, 0.35, 1.10, 0.55, 2000),
-    # FAO-56 reference values — pending agronomist sign-off
-    "cabbage":   (45.0, 18.0, 0.45, 0.70, 1.05, 0.95, 2000),
-    "onions":    (40.0, 14.0, 0.50, 0.70, 1.05, 0.75, 1800),
-    "sweet corn":(50.0, 24.0, 0.50, 0.30, 1.15, 0.90, 2200),
-}
-
-# Default fallback for unknown crops
-_CROP_PARAMS_DEFAULT = (50.0, 36.0, 0.5, 0.30, 1.15, 0.90, 2700)
 
 
 def simulate_season(
@@ -136,9 +114,7 @@ def simulate_season(
             total_rain: total rainfall (inches)
             days: number of days simulated
     """
-    from app.engine.gdd import gdd_daily
-
-    base_temp, root_depth, mad, _kc_initial, kc, _kc_end, _gdd_maturity = CROP_PARAMS.get(
+    base_temp, root_depth, mad, _kc_initial, _kc_mid, _kc_end, _gdd_maturity = CROP_PARAMS.get(
         crop_id, _CROP_PARAMS_DEFAULT
     )
     aw = root_depth * soil_awc
@@ -150,6 +126,7 @@ def simulate_season(
     total_gdd = 0.0
     total_etc = 0.0
     total_rain = 0.0
+    cumulative_gdd = 0.0
 
     for day in weather_series:
         tmax = day.get("tmax_f")
@@ -167,6 +144,9 @@ def simulate_season(
             et0 = max(0.01, 0.0019 * max(0, tmean - 32) * max(0.01, (tmax - tmin) ** 0.5))
 
         gdd = gdd_daily(tmax, tmin, base_temp)
+        cumulative_gdd += gdd
+        gdd_frac = cumulative_gdd / _gdd_maturity if _gdd_maturity > 0 else 0.0
+        kc = kc_for_gdd_frac(crop_id, gdd_frac)
         etc = compute_etc(et0, kc)
         total_gdd += gdd
         total_etc += etc
@@ -267,7 +247,7 @@ def simulate_season_stage_weighted(
     """
     from app.engine.gdd import gdd_daily
 
-    base_temp, root_depth, mad, _kc_initial, kc, _kc_end, gdd_to_maturity = CROP_PARAMS.get(
+    base_temp, root_depth, mad, _kc_initial, _kc_mid, _kc_end, gdd_to_maturity = CROP_PARAMS.get(
         crop_id, _CROP_PARAMS_DEFAULT
     )
     aw = root_depth * soil_awc
@@ -300,14 +280,15 @@ def simulate_season_stage_weighted(
             et0 = max(0.01, 0.0019 * max(0, tmean - 32) * max(0.01, (tmax - tmin) ** 0.5))
 
         gdd = gdd_daily(tmax, tmin, base_temp)
+        cumulative_gdd += gdd
+        gdd_frac = cumulative_gdd / gdd_to_maturity if gdd_to_maturity > 0 else 0.0
+        kc = kc_for_gdd_frac(crop_id, gdd_frac)
         etc = compute_etc(et0, kc)
         total_gdd += gdd
-        cumulative_gdd += gdd
         total_etc += etc
         total_rain += precip
 
         # Determine GDD fraction and stage weight
-        gdd_frac = cumulative_gdd / gdd_to_maturity if gdd_to_maturity > 0 else 0.0
         weight = _stage_weight(gdd_frac)
 
         # Track pollination window boundaries
