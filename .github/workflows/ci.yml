@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [master, main, develop]
   pull_request:
-    branches: [main]
+    branches: [master, main]
 
 jobs:
   test:
@@ -12,7 +12,7 @@ jobs:
     
     services:
       postgres:
-        image: postgis/postgis:15-3.3
+        image: postgis/postgis:16-3.4
         env:
           POSTGRES_DB: furrowcast_test
           POSTGRES_USER: user
@@ -26,17 +26,44 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           
       - name: Install dependencies
         run: |
           cd backend
           pip install -r requirements.txt
+          
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/furrowcast_test
+        run: |
+          cd backend
+          alembic upgrade head
+          
+      - name: Seed database
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/furrowcast_test
+        run: |
+          cd backend
+          python -m app.db.seed
+
+      - name: Bootstrap NY reference data
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/furrowcast_test
+        run: |
+          cd backend
+          python -m app.db.bootstrap
+
+      - name: Lint
+        run: |
+          cd backend
+          pip install ruff==0.16.3   # not in requirements.txt (see repo rule 1)
+          ruff check .
           
       - name: Run tests
         env:

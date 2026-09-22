@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "skip: skipped tests (deselect with '-m \"not skip\"')",
+    "live_network: test intentionally hits a real external API",
+]

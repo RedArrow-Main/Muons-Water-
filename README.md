@@ -78,7 +78,8 @@ Deliverables in-repo: `render.yaml` blueprint, `backend/Dockerfile`, `web/Docker
 | Target | Purpose |
 |---|---|
 | `make dev` | DB + backend (reload) |
-| `make test` | pytest suite |
+| `make test` | pytest suite (auto-creates the test DB) |
+| `make test-db` | create + migrate + bootstrap `furrowcast_test` (idempotent) |
 | `make lint` | ruff check |
 | `make db-reset` | drop/recreate DB + migrate + seed |
 | `make migrate` | Alembic upgrade |
