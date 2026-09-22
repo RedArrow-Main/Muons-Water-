@@ -44,6 +44,16 @@ npm run dev        # http://localhost:3000
 
 Or use the all-in-one launcher: `./start.sh` (starts DB, backend, frontend, picks free ports).
 
+### macOS
+
+One command installs Homebrew, Docker (colima), Python 3.12, Node 18+, backend venv, npm deps, and brings the DB up with migrations + seed:
+
+```bash
+./scripts/setup_mac.sh
+```
+
+The script is idempotent — safe to re-run. Then `make dev` + `cd web && npm run dev` as usual. `start.sh` and `scripts/nightly.sh` are cross-platform (macOS uses `lsof`/BSD `date`; Linux uses `ss`/GNU `date`).
+
 ## Nightly pipeline
 
 Runs automatically (GitHub Actions cron `0 5 * * *` UTC, or local crontab via `scripts/nightly.sh`):

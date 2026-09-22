@@ -4,7 +4,7 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./backend/Dockerfile
-    dockerfileCtx: ./backend
+    dockerContext: ./backend
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -23,7 +23,7 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./web/Dockerfile
-    dockerfileCtx: ./web
+    dockerContext: ./web
     healthCheckPath: /
     buildFilter:
       paths:

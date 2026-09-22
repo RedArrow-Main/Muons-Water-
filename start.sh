@@ -4,13 +4,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Function to check if a port is available
+# (macOS has no `ss`; use lsof there, fall back to `ss` on Linux)
 port_available() {
     local port=$1
-    if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-        return 1  # Port is in use
-    else
+    if [ "$(uname -s)" = "Darwin" ]; then
+        if lsof -iTCP:"$port" -sTCP:LISTEN -P -n >/dev/null 2>&1; then
+            return 1  # Port is in use
+        fi
         return 0  # Port is available
     fi
+    if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+        return 1  # Port is in use
+    fi
+    return 0  # Port is available
 }
 
 # Function to find an available port starting from the given port
@@ -46,8 +52,9 @@ FRONTEND_PORT=$(find_available_port 3000)
 # Start backend server
 echo "[3/4] Starting backend server on port $BACKEND_PORT..."
 export DATABASE_URL="postgresql+psycopg2://user:password@127.0.0.1:5432/furrowcast"
+export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:+$CORS_ALLOWED_ORIGINS,}http://localhost:$FRONTEND_PORT,http://127.0.0.1:$FRONTEND_PORT"
 cd "$SCRIPT_DIR/backend"
-nohup "$SCRIPT_DIR/backend/.venv/bin/python3.12" -m uvicorn app.main:app --reload --host 0.0.0.0 --port $BACKEND_PORT > /tmp/backend.log 2>&1 &
+nohup "$SCRIPT_DIR/backend/.venv/bin/python" -m uvicorn app.main:app --reload --host 0.0.0.0 --port $BACKEND_PORT > /tmp/backend.log 2>&1 &
 BACKEND_PID=$!
 cd "$SCRIPT_DIR"
 sleep 3
@@ -55,7 +62,7 @@ sleep 3
 # Start frontend server
 echo "[4/4] Starting frontend server on port $FRONTEND_PORT..."
 cd "$SCRIPT_DIR/web"
-PORT=$FRONTEND_PORT nohup npm run dev > /tmp/frontend.log 2>&1 &
+NEXT_PUBLIC_API_PORT="$BACKEND_PORT" PORT=$FRONTEND_PORT nohup npm run dev > /tmp/frontend.log 2>&1 &
 FRONTEND_PID=$!
 cd "$SCRIPT_DIR"
 sleep 5

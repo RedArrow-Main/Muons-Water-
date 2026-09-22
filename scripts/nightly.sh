@@ -17,7 +17,16 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   exit 1
 fi
 
-RUN_DATE="${1:-$(date -u -d 'yesterday' +%Y-%m-%d)}"
+# Yesterday's date, UTC — GNU (`date -d`) on Linux, BSD (`date -v`) on macOS
+yesterday_utc() {
+  if date -v-1d +%Y-%m-%d >/dev/null 2>&1; then
+    date -v-1d -u +%Y-%m-%d
+  else
+    date -u -d 'yesterday' +%Y-%m-%d
+  fi
+}
+
+RUN_DATE="${1:-$(yesterday_utc)}"
 SMS_FLAG=""
 if [[ "${FURROWCAST_NIGHTLY_SMS:-0}" == "1" ]]; then
   SMS_FLAG="--sms"
