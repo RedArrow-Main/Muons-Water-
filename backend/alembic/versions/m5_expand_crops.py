@@ -22,6 +22,7 @@ NEW_CROPS = [
 
 def upgrade():
     import sqlalchemy as sa
+
     from alembic import op
 
     for (
@@ -57,6 +58,8 @@ def upgrade():
 
 
 def downgrade():
+    import sqlalchemy as sa
+
     from alembic import op
 
     crop_ids = [c[0] for c in NEW_CROPS]

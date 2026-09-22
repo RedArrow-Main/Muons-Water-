@@ -8,6 +8,7 @@ depends_on = None
 
 def upgrade():
     import sqlalchemy as sa
+
     from alembic import op
 
     op.create_table(
@@ -34,6 +35,8 @@ def upgrade():
 
 
 def downgrade():
+    from alembic import op
+
     op.drop_index("idx_advisories_status")
     op.drop_index("idx_advisories_hash")
     op.drop_index("idx_advisories_fips_date")

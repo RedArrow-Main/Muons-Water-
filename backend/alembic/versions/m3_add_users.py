@@ -8,6 +8,7 @@ depends_on = None
 
 def upgrade():
     import sqlalchemy as sa
+
     from alembic import op
 
     op.create_table(
@@ -24,4 +25,6 @@ def upgrade():
 
 
 def downgrade():
+    from alembic import op
+
     op.drop_table("users")
