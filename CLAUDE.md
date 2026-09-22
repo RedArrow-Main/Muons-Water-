@@ -1,5 +1,5 @@
 # FURROWCAST — REPO RULES
-<!-- DOC VERSION: v1.2 | LAST UPDATED: 2026-08-15 | OWNER: principal -->
+<!-- DOC VERSION: v1.3 | LAST UPDATED: 2026-09-23 | OWNER: principal -->
 Read this file at the start of EVERY session. Obey it always.
 
 ## RULE 0 — THE DOCS ARE THE SOURCE OF TRUTH (highest priority)
@@ -14,13 +14,13 @@ SPEC.md, SCHEMA.sql, and API.md define the product. The code must match them.
 ## What we are building
 FurrowCast delivers county-level planting-window + water-budget advisories to
 New York farmers via SMS, with a Next.js dashboard. v1: 9 crops
-(corn, soy, alfalfa, cover, cotton, sorghum, potatoes, peanuts, sunflower)
+(corn, soy, alfalfa, cover, potatoes, sunflower, cabbage, onions, sweet corn)
 × New York (62 counties). SMS is the alarm clock; the web is the planning desk.
 
 ## Stack — DECIDED. Do not propose alternatives.
 - Backend: Python 3.12 · FastAPI · SQLAlchemy 2 · Pydantic v2 · Alembic
 - Database: PostgreSQL 16 + PostGIS (local: docker-compose)
-- Frontend: Next.js 15 · TypeScript · Tailwind (frontend ONLY — no API routes here)
+- Frontend: Next.js 14 · TypeScript · Tailwind (frontend ONLY — no API routes here)
 - SMS: Twilio, ONLY through app/delivery/sender.py (MessageSender interface)
 - Auth: Email + password (Argon2id). M6 frontend login uses email/password —
   OTP/WebAuthn deferred (see DECISIONS.md D-007). Dev bypass: set
@@ -62,7 +62,7 @@ New York farmers via SMS, with a Next.js dashboard. v1: 9 crops
           grain-fill(0.62–0.90,w=1.0), maturity(0.90–1.00,w=0.3)
 
 ## Repo layout
-backend/app/{ingest,engine,advisor,delivery,auth,api,db,farm}
+backend/app/{ingest,engine,advisor,delivery,auth,api,db,farm,dashboard,sms}
 web/src/{app,components,lib}  (Next.js 14 · TypeScript · Tailwind — frontend only)
 docs/: SPEC.md · SCHEMA.sql · API.md · DECISIONS.md · sprints/
 
@@ -74,3 +74,4 @@ Stop and ask. A wrong assumption costs a day; a question costs a minute.
 - v1.1 (2026-08-06): M6 — Next.js dashboard, farm model API, Alembic m6_add_farms migration.
 - v1.2 (2026-08-15): Scope pivot to NEW YORK ONLY (NE/IA/KS retired as primary target);
   auth updated to email/password; FURROWCAST_DEV_PUBLIC=1 dev bypass documented.
+- v1.3 (2026-09-23): Crop list corrected to the shipped NY rotation — cabbage/onions/sweet corn replaced cotton/sorghum/peanuts in M8-1 (7c2caa6) and this doc was never updated; Next.js stated as 14 to match web/package.json (14.2.33); repo layout gains dashboard/ and sms/.
