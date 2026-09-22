@@ -29,7 +29,8 @@ from app.db.models import (  # noqa: F401
 
 config = context.config
 
-db_url = os.environ["DATABASE_URL"]
+from app.db.connection import DATABASE_URL as db_url
+
 config.set_main_option("sqlalchemy.url", db_url)
 
 if config.config_file_name is not None:

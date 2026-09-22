@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import sys
 
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
@@ -17,9 +16,8 @@ _BACKEND_DIR = os.path.dirname(os.path.dirname(_HERE))
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
-load_dotenv()
-
-DATABASE_URL = os.environ["DATABASE_URL"]
+# Resolved centrally so the production-database guard applies here too.
+from app.db.connection import DATABASE_URL
 
 # ---------------------------------------------------------------------------
 # Seed data

@@ -44,6 +44,12 @@ npm run dev        # http://localhost:3000
 
 Or use the all-in-one launcher: `./start.sh` (starts DB, backend, frontend, picks free ports).
 
+> **Databases are selected explicitly.** `.env` is also the Render deployment config, so it
+> holds the production URL. To stop a bare command from silently writing to production,
+> a managed host (Neon/Render/RDS) is only accepted when `DATABASE_URL` is set in the
+> environment — not when it merely comes from `.env`. The `make` targets set it for you.
+> Override with `FURROWCAST_ALLOW_PROD_DB=1` when you genuinely mean production (D-016).
+
 ### macOS
 
 One command installs Homebrew, Docker (colima), Python 3.12, Node 18+, backend venv, npm deps, and brings the DB up with migrations + seed:
