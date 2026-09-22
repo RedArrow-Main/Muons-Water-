@@ -1,4 +1,4 @@
-# FURROWCAST
+# MUONS WATER
 
 County-level planting-window and water-budget advisories for New York farmers — delivered by SMS, explained on a web dashboard.
 

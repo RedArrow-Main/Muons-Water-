@@ -1,5 +1,5 @@
-# FURROWCAST — REPO RULES
-<!-- DOC VERSION: v1.4 | LAST UPDATED: 2026-09-23 | OWNER: principal -->
+# MUONS WATER — REPO RULES
+<!-- DOC VERSION: v1.5 | LAST UPDATED: 2026-09-23 | OWNER: principal -->
 Read this file at the start of EVERY session. Obey it always.
 
 ## RULE 0 — THE DOCS ARE THE SOURCE OF TRUTH (highest priority)
@@ -12,7 +12,7 @@ SPEC.md, SCHEMA.sql, and API.md define the product. The code must match them.
   report the drift to me. Do not silently "fix" either side.
 
 ## What we are building
-FurrowCast delivers county-level planting-window + water-budget advisories to
+MUONS Water delivers county-level planting-window + water-budget advisories to
 New York farmers via SMS, with a Next.js dashboard. v1: 9 crops
 (corn, soy, alfalfa, cover, potatoes, sunflower, cabbage, onions, sweet corn)
 × New York (62 counties). SMS is the alarm clock; the web is the planning desk.
@@ -76,3 +76,4 @@ Stop and ask. A wrong assumption costs a day; a question costs a minute.
   auth updated to email/password; FURROWCAST_DEV_PUBLIC=1 dev bypass documented.
 - v1.3 (2026-09-23): Crop list corrected to the shipped NY rotation — cabbage/onions/sweet corn replaced cotton/sorghum/peanuts in M8-1 (7c2caa6) and this doc was never updated; Next.js stated as 14 to match web/package.json (14.2.33); repo layout gains dashboard/ and sms/.
 - v1.4 (2026-09-23): Dropped the "SMS ONLY through app/delivery/sender.py" rule — that file never existed, so the constraint was unenforceable and read as satisfied. SMS is still Twilio, sent via app/sms/gateway.py. The empty app/delivery/ package is removed and dropped from the repo layout.
+- v1.5 (2026-09-23): Product renamed FurrowCast -> MUONS Water in prose and headings. Identifiers deliberately unchanged: the FURROWCAST_* env vars, the furrowcast-api / furrowcast-web Render services and the furrowcast database all still carry the old name, because renaming them would require reconfiguring Render and Neon in lockstep.
