@@ -1,3 +1,11 @@
+// Keep local UI and API on the same hostname so session cookies remain same-site.
+export function apiBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  const host = typeof window !== "undefined" && window.location.hostname === "127.0.0.1"
+    ? "127.0.0.1" : "localhost";
+  return `http://${host}:${process.env.NEXT_PUBLIC_API_PORT || "8000"}`;
+}
+
 export interface County {
   fips: string;
   name: string;
@@ -7,6 +15,7 @@ export interface County {
 }
 
 export interface SoilData {
+  water_source?: "stored" | "assumed";
   type: string;
   awc: number;
 }
@@ -52,6 +61,7 @@ export interface Farm {
 }
 
 export interface ForecastDay {
+  advice_uncertain?: boolean;
   date: string;
   tmax_f: number;
   tmin_f: number;
@@ -65,6 +75,9 @@ export interface ForecastDay {
 }
 
 export interface TodayData {
+  advice_uncertain?: boolean;
+  soil_min_pct?: number;
+  soil_max_pct?: number;
   gdd: number;
   etc: number;
   soil_water: number;
@@ -116,7 +129,7 @@ export async function getAdvisory(
     if (opts.cropId) params.set("crop_id", opts.cropId);
     if (opts.plantingDate) params.set("planting_date", opts.plantingDate);
     const qs = params.toString();
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const baseUrl = apiBaseUrl();
     const url = `${baseUrl}/api/advisory/${fips}${qs ? `?${qs}` : ""}`;
     const response = await fetch(url, {
       method: "GET",
@@ -131,21 +144,22 @@ export async function getAdvisory(
       if (response.status === 401 || response.status === 403) {
         throw new Error("UNAUTHENTICATED");
       }
-      return null;
+      throw new Error(`Advisory service returned ${response.status}. Please retry.`);
     }
     return response.json();
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw error;
     }
-    console.error("Failed to fetch advisory:", error);
-    return null;
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") throw error;
+    if (error instanceof Error && error.message.startsWith("Advisory service")) throw error;
+    throw new Error("Cannot reach the data service. Make sure the API and database are running, then retry.");
   }
 }
 
 export async function getCrops(): Promise<CropCatalog[]> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const baseUrl = apiBaseUrl();
     const response = await fetch(`${baseUrl}/api/crops`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
@@ -164,7 +178,7 @@ export async function getCrops(): Promise<CropCatalog[]> {
 
 export async function getFarms(): Promise<Farm[]> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const baseUrl = apiBaseUrl();
     const response = await fetch(`${baseUrl}/api/farm`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
@@ -183,7 +197,7 @@ export async function getFarms(): Promise<Farm[]> {
 
 export async function getCounties(): Promise<County[]> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const baseUrl = apiBaseUrl();
     const response = await fetch(`${baseUrl}/api/counties`, {
       method: "GET",
       headers: {
@@ -203,7 +217,7 @@ export async function getCounties(): Promise<County[]> {
 }
 
 export async function login(email: string, password: string): Promise<void> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const baseUrl = apiBaseUrl();
   const res = await fetch(`${baseUrl}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -223,7 +237,7 @@ export async function login(email: string, password: string): Promise<void> {
 }
 
 export async function register(email: string, password: string): Promise<void> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const baseUrl = apiBaseUrl();
   const res = await fetch(`${baseUrl}/api/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -243,9 +257,10 @@ export async function register(email: string, password: string): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  await fetch(`${baseUrl}/api/auth/logout`, {
+  const baseUrl = apiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/auth/logout`, {
     method: "POST",
     credentials: "include",
   });
+  if (!response.ok) throw new Error("Sign out failed. Please try again.");
 }

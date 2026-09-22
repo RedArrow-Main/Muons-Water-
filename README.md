@@ -135,3 +135,31 @@ SW(t+1)      = min(AW, SW(t) + rain + irr − ETc)        # AW = root_depth_in �
 IRRIGATE     when depletion = 1 − SW/AW ≥ crop.mad      # refill to 0.9 × AW
 Window close = first_frost_50pct − maturity_days        # band from frost_10/90
 ```
+
+### MUONS Water workspace
+
+The redesigned app provides `/login`, `/dashboard`, `/growth`, `/water`, `/journal`,
+`/weather`, `/reports`, `/settings`, `/checklist` and `/help` with one responsive shell.
+Use Overview to select county, crop and planting date; analysis pages reuse that
+selection. Keep `NEXT_PUBLIC_API_URL` pointed at the existing FastAPI service.
+
+From `web/`, run `npm run dev` for development and `npm run build` for the production
+compile. Use a separate build/server session: do not build into `.next` while a dev
+server is using it. Browser regression checks use intercepted API fixtures and do
+not write to the database:
+
+```bash
+# With the dev server running on port 3002:
+PREVIEW_URL=http://127.0.0.1:3002 node tests/app-pages.mjs
+PREVIEW_URL=http://127.0.0.1:3002/dashboard node tests/plant-dashboard.mjs
+```
+
+The app-pages test checks all ten pages at 1440, 1920, 2560, 1280, 1024, 768, 390
+and 320px plus journal CRUD, filters, local persistence, settings, CSV export,
+checklist, navigation, sign-in and API retry behavior. Journal notes/photos and
+preferences/checklist progress are browser-local, not account-synchronized. Export
+journal JSON backups from Field Journal. Reports export CSV or browser Print / Save
+PDF. Missing hourly weather, long forecasts, measured growth history, notification
+delivery and account editing remain explicitly unavailable; no substitute data is
+invented. The current dashboard uses explicit inches while analysis/report units
+can be set in Settings.

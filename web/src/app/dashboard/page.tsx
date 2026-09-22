@@ -1,15 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { getAdvisory, getCrops, getFarms, logout } from "@/lib/api";
+import PlantStatus from "@/components/PlantStatus";
+import { getAdvisory, getCrops, getFarms } from "@/lib/api";
 import type { AdvisoryResponse, CropCatalog, Farm, ForecastDay } from "@/lib/types";
-
-const TODAY = new Date().toLocaleDateString("en-US", {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-});
 
 const CROP_STORAGE_KEY = "furrowcast_crop";
 const PLANTING_STORAGE_KEY = "furrowcast_planting_date";
@@ -18,20 +12,6 @@ const FALLBACK_CROPS: string[] = [
   "corn", "soy", "alfalfa", "cover", "potatoes",
   "sunflower", "cabbage", "onions", "sweet corn",
 ];
-
-function DecisionBadge({ action }: { action: string }) {
-  const colors = {
-    HOLD: { bg: "bg-green-100", text: "text-green-900", border: "border-green-300", label: "HOLD" },
-    SCHEDULE: { bg: "bg-amber-100", text: "text-amber-900", border: "border-amber-300", label: "SCHEDULE" },
-    IRRIGATE: { bg: "bg-red-100", text: "text-red-900", border: "border-red-300", label: "IRRIGATE" },
-  };
-  const c = colors[action as keyof typeof colors] || colors.HOLD;
-  return (
-    <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border-2 ${c.border} ${c.bg} ${c.text}`}>
-      <span className="font-mono text-xs font-bold tracking-wider">{c.label}</span>
-    </div>
-  );
-}
 
 function CountySelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const NY_COUNTIES: Array<{ fips: string; name: string }> = [
@@ -99,10 +79,10 @@ function CountySelector({ value, onChange }: { value: string; onChange: (v: stri
     { fips: "36123", name: "Yates" },
   ];
   return (
-    <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-      <label className="block text-xs font-mono text-gray-500 mb-2 tracking-wider">SELECT COUNTY (NY)</label>
-      <select
-        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-mono min-h-[44px] focus:outline-none focus:border-green-500 transition-colors"
+    <div className="px-4 py-3 bg-transparent">
+      <label htmlFor="county" className="block text-sm text-gray-600 mb-2">County (NY)</label>
+      <select id="county"
+        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-sans min-h-[44px] focus:outline-none focus:border-green-500 transition-colors"
         value={value}
         onChange={e => onChange(e.target.value)}
       >
@@ -129,11 +109,11 @@ function FarmConfigPanel({
 }) {
   const today = new Date().toISOString().slice(0, 10);
   return (
-    <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex flex-col sm:flex-row gap-4">
+    <div className="px-4 py-3 bg-transparent flex flex-col sm:flex-row gap-4">
       <div className="flex-1">
-        <label className="block text-xs font-mono text-gray-500 mb-2 tracking-wider">CROP (YOUR FARM)</label>
-        <select
-          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-mono min-h-[44px] focus:outline-none focus:border-green-500 transition-colors"
+        <label htmlFor="crop" className="block text-sm text-gray-600 mb-2">Your crop</label>
+        <select id="crop"
+          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-sans min-h-[44px] focus:outline-none focus:border-green-500 transition-colors"
           value={cropId}
           onChange={e => onCropChange(e.target.value)}
         >
@@ -143,58 +123,16 @@ function FarmConfigPanel({
         </select>
       </div>
       <div className="flex-1">
-        <label className="block text-xs font-mono text-gray-500 mb-2 tracking-wider">PLANTING DATE</label>
+        <label htmlFor="planting-date" className="block text-sm text-gray-600 mb-2">Planting date</label>
         <input
-          type="date"
+          id="planting-date" type="date"
           min="2025-01-01"
           max={today}
-          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-mono min-h-[44px] focus:outline-none focus:border-green-500 transition-colors"
+          className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-sans min-h-[44px] focus:outline-none focus:border-green-500 transition-colors"
           value={plantingDate}
           onChange={e => onPlantingDateChange(e.target.value)}
         />
       </div>
-    </div>
-  );
-}
-
-function SoilGauge({ pct }: { pct: number }) {
-  const clamped = Math.min(100, Math.max(0, pct));
-  const color = clamped >= 60 ? "text-green-500" : clamped >= 40 ? "text-amber-500" : "text-red-500";
-  return (
-    <div className="text-center">
-      <div className="relative w-32 h-32 mx-auto mb-2">
-        <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8" className="text-gray-200" />
-          <circle
-            cx="50" cy="50" r="42" fill="none" stroke="currentColor" strokeWidth="8"
-            className={color}
-            strokeDasharray={`${clamped * 2.64} 264`}
-            strokeLinecap="round"
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={`font-mono text-3xl font-bold ${color}`}>{Math.round(clamped)}%</span>
-        </div>
-      </div>
-      <div>
-        <span className="font-mono text-sm text-gray-600 block">Soil water</span>
-        <span className="font-mono text-[10px] text-gray-500 -mt-1">How wet the root zone is</span>
-      </div>
-    </div>
-  );
-}
-
-function SimpleMetric({ label, value, subtext, unit }: { label: string; value: string | number; subtext?: string; unit?: string }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3">
-      <small className="font-mono text-[8.5px] tracking-[0.16em] text-gray-500 block mb-1">{label}</small>
-      <b className="font-mono text-lg">
-        {value}
-        {unit && <span className="font-mono text-[10px] text-gray-400 ml-1">{unit}</span>}
-      </b>
-      {subtext && (
-        <small className="font-mono text-[8.5px] tracking-[0.16em] text-gray-400 block -mt-1">{subtext}</small>
-      )}
     </div>
   );
 }
@@ -235,11 +173,11 @@ function WeatherIcon({ precip }: { precip: number }) {
 function WeatherStrip({ forecast }: { forecast: ForecastDay[] }) {
   return (
     <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-      <h4 className="font-mono text-lg font-semibold text-gray-800 mb-4">7-DAY FORECAST</h4>
+      <div className="mw-forecast-title"><div><h4>7-Day Forecast</h4><p>Daily weather and crop water outlook</p></div><a href="/weather">View full forecast →</a></div>
       {!forecast || forecast.length === 0 ? (
-        <p className="text-gray-500 text-sm font-mono">No forecast data available for this county.</p>
+        <p className="text-gray-500 text-sm font-sans">No forecast data available for this county.</p>
       ) : (
-      <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+      <div className="mw-forecast-days">
         {forecast.map((day, i) => {
           const dt = new Date(day.date + "T12:00:00");
           const label = i === 0 ? "TODAY" : dt.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
@@ -249,16 +187,16 @@ function WeatherStrip({ forecast }: { forecast: ForecastDay[] }) {
           return (
             <div
               key={day.date}
-              className="flex-none w-28 snap-center border border-gray-200 rounded-xl p-3 text-center hover:border-green-300 transition-colors"
+              className="mw-forecast-day"
             >
-              <div className="font-mono text-xs font-semibold tracking-wider text-gray-600">{label}</div>
-              <div className="font-mono text-[11px] text-gray-400 mb-1">{dateLabel}</div>
+              <div className="font-sans text-xs font-semibold tracking-wider text-gray-600">{label}</div>
+              <div className="font-sans text-[11px] text-gray-400 mb-1">{dateLabel}</div>
               <WeatherIcon precip={day.precip_in} />
-              <div className="font-mono text-sm mt-1">
+              <div className="font-sans text-sm mt-1">
                 <span className="text-gray-800 font-semibold">{Math.round(day.tmax_f)}°</span>
                 <span className="text-gray-400"> / {Math.round(day.tmin_f)}°</span>
               </div>
-              <div className={`font-mono text-xs mt-1 ${hasPrecip ? (isRain ? "text-blue-600" : "text-gray-500") : "text-gray-300"}`}>
+              <div className={`font-sans text-xs mt-1 ${hasPrecip ? (isRain ? "text-blue-600" : "text-gray-500") : "text-gray-300"}`}>
                 {hasPrecip ? `${day.precip_in.toFixed(1)}"` : "—"}
               </div>
             </div>
@@ -280,10 +218,10 @@ function DroughtCard({ drought }: { drought: AdvisoryResponse["drought"] }) {
     D3: "#B91C1C",
     D4: "#7F1D1D",
   };
-  const color = active ? (SCALE[level as string] ?? "#92400E") : "#16A34A";
+  const color = !level ? "#94A3B8" : active ? (SCALE[level as string] ?? "#92400E") : "#16A34A";
   return (
     <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h4 className="font-mono text-lg font-semibold text-gray-800 mb-4">DROUGHT STATUS</h4>
+      <h4 className="font-sans text-lg font-semibold text-gray-800 mb-4">Field status</h4>
       <div className="flex items-center gap-3">
         <span
           className="w-5 h-5 rounded-full ring-2 ring-white shadow"
@@ -291,11 +229,11 @@ function DroughtCard({ drought }: { drought: AdvisoryResponse["drought"] }) {
           aria-hidden
         />
         <div>
-          <p className="font-mono text-lg font-bold text-gray-900">
-            {active ? `USDM ${level}` : "No active drought"}
+          <p className="font-sans text-lg font-bold text-gray-900">
+            {!level ? "Drought data unavailable" : active ? `USDM ${level}` : "No active drought"}
           </p>
           <p className="text-sm text-gray-500">
-            {active ? "Abnormally dry / drought conditions" : "Conditions normal for this county"}
+            {!level ? "No drought record was returned for this county" : active ? "Abnormally dry / drought conditions" : "No drought reported in the latest record"}
           </p>
         </div>
       </div>
@@ -309,18 +247,18 @@ function HistoryCard({ history }: { history: AdvisoryResponse["history"] }) {
     history?.july_avg_high != null && history?.july_avg_low != null && history?.july_total_rain != null;
   return (
     <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h4 className="font-mono text-lg font-semibold text-gray-800 mb-4">WEATHER HISTORY</h4>
+      <h4 className="font-sans text-lg font-semibold text-gray-800 mb-4">WEATHER HISTORY</h4>
       {has7d ? (
-        <p className="font-mono text-xl font-bold text-gray-900">
+        <p className="font-sans text-xl font-bold text-gray-900">
           Past 7 days: {history.last_7d_rain.toFixed(1)} in rain, {history.last_7d_et.toFixed(1)} in ET
         </p>
       ) : (
-        <p className="font-mono text-xl font-bold text-gray-500">Setting up data for this county</p>
+        <p className="font-sans text-xl font-bold text-gray-500">Setting up data for this county</p>
       )}
       {has30d ? (
         <p className="text-sm text-gray-500 mt-2">
           30-day avg high {Math.round(history.july_avg_high)}° / low {Math.round(history.july_avg_low)}° ·{" "}
-          {history.july_total_rain.toFixed(1)}" total rain
+          {history.july_total_rain.toFixed(1)}&quot; total rain
         </p>
       ) : (
         <p className="text-sm text-gray-500 mt-2">No historical record available</p>
@@ -331,10 +269,10 @@ function HistoryCard({ history }: { history: AdvisoryResponse["history"] }) {
 
 function DashboardSkeleton() {
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-[#f5f6f0]">
       <div className="border-b border-gray-200 bg-white">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="h-5 w-32 bg-gray-200 rounded animate-pulse" />
+          <p role="status" className="text-sm text-gray-600">Loading your field and weather data…</p>
           <div className="h-7 w-40 bg-gray-200 rounded mt-2 animate-pulse" />
         </div>
       </div>
@@ -367,7 +305,8 @@ function DashboardSkeleton() {
 export default function DashboardPage() {
   const [selectedCounty, setSelectedCounty] = useState("36037");
   const [advisory, setAdvisory] = useState<AdvisoryResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [selectionReady, setSelectionReady] = useState(false);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -376,21 +315,13 @@ export default function DashboardPage() {
   const [cropId, setCropId] = useState("corn");
   const [plantingDate, setPlantingDate] = useState("");
   const autoSetPlantingRef = useRef(false);
-  const router = useRouter();
-
-  async function handleLogout() {
-    try {
-      await logout();
-    } catch {
-      /* ignore network errors — still redirect */
-    }
-    router.push("/login");
-  }
-
+  const loadedSelectionRef = useRef("");
   // Restore last selection + load the Crop Library and the user's farms
   useEffect(() => {
+    setSelectedCounty(localStorage.getItem("furrowcast_county") || "36037");
     setCropId(localStorage.getItem(CROP_STORAGE_KEY) || "corn");
     setPlantingDate(localStorage.getItem(PLANTING_STORAGE_KEY) || "");
+    setSelectionReady(true);
 
     let mounted = true;
     getCrops().then(rows => {
@@ -406,9 +337,10 @@ export default function DashboardPage() {
 
   // Persist the selection — "this is what my farm is planted to"
   useEffect(() => {
+    if (!selectionReady) return;
     localStorage.setItem(CROP_STORAGE_KEY, cropId);
     localStorage.setItem(PLANTING_STORAGE_KEY, plantingDate);
-  }, [cropId, plantingDate]);
+  }, [cropId, plantingDate, selectionReady]);
 
   // Prefill from the user's farm for the selected county
   useEffect(() => {
@@ -421,6 +353,9 @@ export default function DashboardPage() {
   }, [selectedCounty, farms]);
 
   useEffect(() => {
+    if (!selectionReady) return;
+    const selectionKey = JSON.stringify([selectedCounty, cropId, plantingDate, reloadKey]);
+    if (loadedSelectionRef.current === selectionKey) return;
     const controller = new AbortController();
     let mounted = true;
     async function load() {
@@ -428,7 +363,10 @@ export default function DashboardPage() {
       setError("");
       try {
         const data = await getAdvisory(selectedCounty, { cropId, plantingDate, signal: controller.signal });
-        if (mounted) setAdvisory(data);
+        if (mounted) {
+          loadedSelectionRef.current = JSON.stringify([selectedCounty, cropId, plantingDate || data?.crop?.planting_date || "", reloadKey]);
+          setAdvisory(data);
+        }
       } catch (e: any) {
         if (controller.signal.aborted) return;
         if (e.message === "UNAUTHENTICATED") {
@@ -445,7 +383,7 @@ export default function DashboardPage() {
       mounted = false;
       controller.abort();
     };
-  }, [selectedCounty, cropId, plantingDate, reloadKey]);
+  }, [selectedCounty, cropId, plantingDate, reloadKey, selectionReady]);
 
   // Once the backend reports the effective planting date, surface it in the picker
   useEffect(() => {
@@ -463,13 +401,13 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-gray-50">
+      <main className="min-h-screen bg-[#f5f6f0]">
         <div className="max-w-7xl mx-auto px-4 py-12 text-center">
-          <p className="font-mono text-xl text-red-600 mb-2">Something went wrong</p>
+          <p className="font-sans text-xl text-red-600 mb-2">Something went wrong</p>
           <p className="text-gray-600 text-sm mb-6">{error}</p>
             <button
               onClick={() => setReloadKey((k) => k + 1)}
-              className="mt-4 px-6 py-2 min-h-[44px] bg-green-600 text-white font-mono text-sm rounded-lg hover:bg-green-700 transition-colors"
+              className="mt-4 px-6 py-2 min-h-[44px] bg-green-600 text-white font-sans text-sm rounded-lg hover:bg-green-700 transition-colors"
             >
               RETRY
             </button>
@@ -480,29 +418,15 @@ export default function DashboardPage() {
 
   if (!advisory || !advisory.today) {
     return (
-      <main className="min-h-screen bg-gray-50">
+      <main className="min-h-screen bg-[#f5f6f0]">
         <div className="max-w-7xl mx-auto px-4 py-12 text-center">
-          <p className="font-mono text-sm text-gray-500">Data unavailable for this county</p>
+          <p className="font-sans text-sm text-gray-500">Data unavailable for this county</p>
         </div>
       </main>
     );
   }
 
-  const { today, forecast, county, soil, crop, drought, history, planting_window, outbox } = advisory;
-
-  const actionLabel =
-    today.action === "HOLD"
-      ? "HOLD — NO IRRIGATION NEEDED TODAY"
-      : today.action === "SCHEDULE"
-      ? "SCHEDULE — LOW MOISTURE FORECAST"
-      : "IRRIGATE — RUN PIVOT TODAY";
-
-  const actionColor =
-    today.action === "IRRIGATE"
-      ? "text-red-700"
-      : today.action === "SCHEDULE"
-      ? "text-amber-700"
-      : "text-green-700";
+  const { forecast, county, drought, history, planting_window, outbox } = advisory;
 
   const pipelineAt = advisory.data_as_of?.last_pipeline_at;
   const dataAsOf = pipelineAt
@@ -514,134 +438,30 @@ export default function DashboardPage() {
     : null;
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="border-b border-gray-200 bg-white/95 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="font-mono text-xl font-bold text-green-800 tracking-wide">MUONS WATER</h1>
-            <h2 className="font-mono text-2xl text-gray-800 font-semibold mt-1">
-              {county.name}, {county.state}
-            </h2>
-            {dataAsOf && (
-              <p className="font-mono text-[11px] text-gray-400 mt-1 tracking-wide">
-                Data as of {dataAsOf}
-              </p>
-            )}
-          </div>
-          <div className="text-right flex items-center gap-3">
-            <p className="font-mono text-sm text-gray-500 tracking-wider">{TODAY}</p>
-            <button
-              onClick={handleLogout}
-              className="px-3 py-2 min-h-[44px] text-sm font-mono rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100"
-            >
-              LOGOUT
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <CountySelector value={selectedCounty} onChange={setSelectedCounty} />
-      <FarmConfigPanel
-        crops={cropOptions}
-        cropId={cropId}
-        onCropChange={setCropId}
-        plantingDate={plantingDate}
-        onPlantingDateChange={setPlantingDate}
-      />
-
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 mb-8">
-          <div className="mb-6">
-            <span className="text-xs font-mono text-gray-500 tracking-wider uppercase">TODAY'S ADVISORY</span>
-            <h3 className={`font-mono text-4xl font-bold mt-2 ${actionColor}`}>{actionLabel}</h3>
-            <p className="font-mono text-xs text-gray-500 mt-2 tracking-wide">
-              {crop.id.toUpperCase()} · PLANTED {crop.planting_date ?? "—"} · {crop.stage_label ?? crop.growth_stage} GROWTH STAGE
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-4 items-center">
-            <DecisionBadge action={today.action} />
-            {today.action === "IRRIGATE" && today.irrigate_amount > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-lg px-5 py-3">
-                <small className="font-mono text-xs tracking-wider text-red-600 block mb-1">APPLY</small>
-                <b className="font-mono text-2xl text-red-700">
-                  {today.irrigate_amount.toFixed(1)}"
-                </b>
-                <span className="font-mono text-sm text-red-600 ml-2">INCHES TODAY</span>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-            <SimpleMetric label="Water used by crop" value={(today.depletion * 100).toFixed(0)} unit="%" />
-            <SimpleMetric
-              label="Refill point"
-              value={(crop.mad * 100).toFixed(0)}
-              unit="%"
-              subtext={
-                crop.base_mad != null
-                  ? `${(crop.base_mad * 100).toFixed(0)}% base · ${crop.stage_label ?? crop.id}`
-                  : "water below this = irrigate"
-              }
-            />
-            <SimpleMetric
-              label="Growth stage"
-              value={crop.stage_label ?? crop.growth_stage ?? "—"}
-              subtext={`${(crop.gdd_pct ?? 0).toFixed(0)}% of season · ${Math.round(crop.cumulative_gdd ?? 0)} GDD`}
-            />
-            <SimpleMetric label="Crop water today" value={today.etc.toFixed(2)} unit="in" subtext="inches the crop drinks" />
-            <SimpleMetric label="Rain next 7 days" value={today.rain_7d.toFixed(1)} unit="in" />
-            <SimpleMetric label="Water to add" value={today.depletion >= crop.mad ? (0.9 * crop.aw - today.soil_water).toFixed(2) : "0.00"} unit="in" subtext="how much to irrigate" />
-          </div>
-        </section>
-
-        <WeatherStrip forecast={forecast} />
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <div className="lg:col-span-2 space-y-6">
-            <HistoryCard history={history} />
-
-            <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h4 className="font-mono text-lg font-semibold text-gray-800 mb-4">SOIL MOISTURE</h4>
-              <div className="flex flex-col md:flex-row items-center md:items-start gap-4">
-                <SoilGauge pct={today.soil_pct} />
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="font-mono text-sm text-gray-600">Soil type:</span>
-                    <span className="font-mono text-sm font-semibold text-gray-800 capitalize">{soil.type}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-mono text-sm text-gray-600">Current soil water:</span>
-                    <span className="font-mono text-sm font-semibold text-gray-800">{today.soil_water.toFixed(1)}" of {crop.aw.toFixed(1)}"</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-mono text-sm text-gray-600">Available water capacity:</span>
-                    <span className="font-mono text-sm font-semibold text-gray-800">{crop.aw.toFixed(1)}"</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-mono text-sm text-gray-600">Depletion:</span>
-                    <span className="font-mono text-sm font-semibold text-gray-800">{Math.round(today.depletion * 100)}%</span>
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          <div className="space-y-6">
+    <main className="mw-reference-dashboard">
+      <PlantStatus advisory={advisory} filters={<div className="mw-reference-filters">
+        <CountySelector value={selectedCounty} onChange={value=>{setSelectedCounty(value);localStorage.setItem("furrowcast_county",value);}} />
+        <FarmConfigPanel crops={cropOptions} cropId={cropId} onCropChange={setCropId} plantingDate={plantingDate} onPlantingDateChange={setPlantingDate} />
+        <button className="mw-reference-update" onClick={()=>setReloadKey(k=>k+1)}>Update</button>
+      </div>} />
+      <div className="mw-reference-lower">
+        <div><WeatherStrip forecast={forecast}/><details className="mw-reference-history"><summary>Weather history & data freshness</summary><p>Data as of {dataAsOf || "unavailable"} · {county.name}, {county.state}</p><HistoryCard history={history}/></details></div>
+        <div className="mw-reference-status">
             <DroughtCard drought={drought} />
 
             <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h4 className="font-mono text-lg font-semibold text-gray-800 mb-4">PLANTING WINDOW</h4>
+              <h4 className="font-sans text-lg font-semibold text-gray-800 mb-4">Planting window</h4>
               {planting_window ? (
                 <div className="space-y-3">
                   <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="font-mono text-xs text-gray-500 uppercase tracking-wider mb-1">FROST 50%</p>
-                    <p className="font-mono text-lg font-bold text-gray-800">
+                    <p className="font-sans text-xs text-gray-500 uppercase tracking-wider mb-1">FROST 50%</p>
+                    <p className="font-sans text-lg font-bold text-gray-800">
                       {planting_window.frost_50pct}
                     </p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="font-mono text-xs text-gray-500 uppercase tracking-wider mb-1">LATEST SAFE PLANT</p>
-                    <p className="font-mono text-lg font-bold text-gray-800">
+                    <p className="font-sans text-xs text-gray-500 uppercase tracking-wider mb-1">LATEST SAFE PLANT</p>
+                    <p className="font-sans text-lg font-bold text-gray-800">
                       {planting_window.corn_start}
                     </p>
                   </div>
@@ -652,19 +472,19 @@ export default function DashboardPage() {
             </section>
 
             <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h4 className="font-mono text-lg font-semibold text-gray-800 mb-4">RECENT ADVISORIES</h4>
+              <h4 className="font-sans text-lg font-semibold text-gray-800 mb-4">Recent advisories</h4>
               {outbox.length === 0 ? (
                 <p className="text-gray-500 text-sm">No advisories sent yet.</p>
               ) : (
                 <div className="space-y-2">
                   {outbox.slice(0, 3).map((o, i) => (
                     <div key={i} className="flex justify-between items-center border-b border-gray-200 pb-2 last:border-0">
-                      <span className="font-mono text-xs tracking-wider text-gray-500">
+                      <span className="font-sans text-xs tracking-wider text-gray-500">
                         {new Date(o.sent_at).toLocaleDateString("en-US", {
                           month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
                         })}
                       </span>
-                      <span className="font-mono text-xs tracking-wider text-gray-500 max-w-xs truncate">{o.body}</span>
+                      <span className="font-sans text-xs tracking-wider text-gray-500 max-w-xs truncate">{o.body}</span>
                     </div>
                   ))}
                 </div>
@@ -672,7 +492,6 @@ export default function DashboardPage() {
             </section>
           </div>
         </div>
-      </div>
     </main>
   );
 }

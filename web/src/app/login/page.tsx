@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { AppIcon } from "@/components/AppShell";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { login, register } from "@/lib/api";
 
@@ -8,6 +11,8 @@ type Mode = "login" | "register";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -39,79 +44,5 @@ export default function LoginPage() {
     }
   }
 
-  return (
-    <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="font-mono text-2xl font-bold text-green-800 tracking-wide">MUONS WATER</h1>
-          <p className="font-mono text-sm text-gray-500 mt-1 tracking-wider">
-            FURROWCAST ADVISORY LOGIN
-          </p>
-        </div>
-
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4"
-        >
-          <div>
-            <label className="block font-mono text-xs uppercase tracking-wider text-gray-500 mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full min-h-[44px] rounded-lg border border-gray-300 px-4 py-2 text-sm font-mono focus:outline-none focus:border-green-500"
-              placeholder="you@example.com"
-            />
-          </div>
-
-          <div>
-            <label className="block font-mono text-xs uppercase tracking-wider text-gray-500 mb-1">
-              Password
-            </label>
-            <input
-              type="password"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full min-h-[44px] rounded-lg border border-gray-300 px-4 py-2 text-sm font-mono focus:outline-none focus:border-green-500"
-              placeholder="••••••••"
-            />
-          </div>
-
-          {error && (
-            <p className="font-mono text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full min-h-[44px] bg-green-600 text-white font-mono text-sm rounded-lg hover:bg-green-700 disabled:opacity-60 transition-colors"
-          >
-            {loading
-              ? "WORKING…"
-              : mode === "login"
-              ? "LOG IN"
-              : "CREATE ACCOUNT & LOG IN"}
-          </button>
-        </form>
-
-        <button
-          onClick={() => {
-            setMode(mode === "login" ? "register" : "login");
-            setError("");
-          }}
-          className="w-full mt-4 text-center font-mono text-xs text-gray-500 hover:text-green-700"
-        >
-          {mode === "login"
-            ? "No account? Create one"
-            : "Have an account? Log in"}
-        </button>
-      </div>
-    </main>
-  );
+  return <main className="mw-auth"><section className="mw-auth-visual"><Link className="mw-brand" href="/"><span><AppIcon name="leaf"/></span><strong className="text-green-950">MUONS WATER</strong></Link><div><h2>Better water decisions.<br/>From the ground up.</h2><p>Your crop, weather and soil-water estimates in one calm, clear workspace.</p></div><div className="mw-auth-art"><Image src="/images/crop-soil-3d.png" alt="Illustrative maize plant with soil and roots" fill sizes="50vw" priority/></div><p>Science-based estimates. Field-informed decisions.</p></section><section className="mw-auth-form"><div><span className="mw-eyebrow mb-4">WELCOME TO MUONS WATER</span><h1>{mode==='login'?'Welcome back':'Start your growing journey'}</h1><p>{mode==='login'?'Sign in to see your field’s next step.':'Create your account to explore crop and water advisories.'}</p><form onSubmit={handleSubmit}><fieldset className="contents" disabled={!ready || loading}><label className="mw-field">Email<input type="email" required autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label className="mw-field">Password<input type="password" required minLength={8} autoComplete={mode==='login'?'current-password':'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/></label>{error&&<div role="alert" className="mw-banner warn">{error}</div>}<button className="mw-btn" disabled={loading}>{loading?'Signing in…':mode==='login'?'Sign in':'Create account'}</button></fieldset></form><button className="mt-6 text-sm text-green-800 min-h-[44px]" onClick={()=>{setMode(mode==='login'?'register':'login');setError('');}}>{mode==='login'?'New to MUONS Water? Create an account':'Already have an account? Sign in'}</button><p className="!text-xs !mt-8">Your observations and local browser notes are separate from your account data.</p></div></section></main>;
 }

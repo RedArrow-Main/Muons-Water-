@@ -7,6 +7,7 @@ export interface County {
 }
 
 export interface SoilData {
+  water_source?: "stored" | "assumed";
   type: string;
   awc: number;
 }
@@ -52,6 +53,7 @@ export interface Farm {
 }
 
 export interface ForecastDay {
+  advice_uncertain?: boolean;
   date: string;
   tmax_f: number;
   tmin_f: number;
@@ -65,6 +67,9 @@ export interface ForecastDay {
 }
 
 export interface TodayData {
+  advice_uncertain?: boolean;
+  soil_min_pct?: number;
+  soil_max_pct?: number;
   gdd: number;
   etc: number;
   soil_water: number;
