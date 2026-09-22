@@ -1,6 +1,7 @@
 """m6_add_farms — Add farms and farm_crops tables for M6 dashboard."""
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "m6_add_farms"
 down_revision = "m5_expand_crops"

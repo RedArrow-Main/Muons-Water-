@@ -1,6 +1,7 @@
 """m7_farm_planting_date — track planting date per crop on a farm."""
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "m7_farm_planting_date"
 down_revision = "m6_add_farms"

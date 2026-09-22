@@ -1,5 +1,3 @@
-from sqlalchemy.orm import Session
-from app.db.connection import engine
 from app.advisor.service import generate_all
 
 result = generate_all("2026-08-10")

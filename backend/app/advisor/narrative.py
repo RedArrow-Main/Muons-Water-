@@ -9,7 +9,6 @@ Templates: deterministic, no LLM in v1.
 """
 from __future__ import annotations
 
-
 # ── Tunable constants (Adjustment 1) ───────────────────────────────────
 SCHEDULE_LOOKAHEAD_MAD: float = 0.10   # depletion must be >= mad - 0.10
 SCHEDULE_MIN_RAIN_IN: float = 0.5      # suppress SCHEDULE if forecast rain >= this

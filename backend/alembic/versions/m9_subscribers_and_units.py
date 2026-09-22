@@ -11,7 +11,6 @@ import sqlalchemy as sa
 
 from alembic import op
 
-
 revision = "m9_subscribers_and_units"
 down_revision = "m8_ny_crops"
 branch_labels = None

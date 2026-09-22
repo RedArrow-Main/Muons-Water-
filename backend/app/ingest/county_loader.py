@@ -1,8 +1,8 @@
 """Load all US counties into the database (idempotent upsert)."""
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from .counties_data import get_counties
 
