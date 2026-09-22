@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # Must be declared here, not only referenced: the `if:` conditions below
+      # read `env.HEALTHCHECKS_URL`, and an undeclared name is always '', which
+      # silently skipped every ping — including the failure one.
+      HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -22,9 +26,47 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
 
+      - name: Check configuration
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is empty. Set the repository secret" \
+                 "DATABASE_URL under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          python - <<'PY'
+          import os, sys
+          from urllib.parse import urlparse
+          u = urlparse(os.environ["DATABASE_URL"])
+          # Host and database only — never the credentials.
+          print(f"target host : {u.hostname}")
+          print(f"target db   : {(u.path or '').lstrip('/') or '(none)'}")
+          if not u.hostname:
+              print("::error::DATABASE_URL is set but unparseable.")
+              sys.exit(1)
+          PY
+
+      - name: Verify database is reachable
+        run: |
+          cd backend
+          python - <<'PY'
+          import os, sys
+          from sqlalchemy import create_engine, text
+          try:
+              with create_engine(os.environ["DATABASE_URL"]).connect() as c:
+                  counties = c.execute(text("SELECT count(*) FROM counties")).scalar()
+                  crops = c.execute(text("SELECT count(*) FROM crops")).scalar()
+          except Exception as exc:
+              print(f"::error::Cannot reach the database: {type(exc).__name__}: {exc}")
+              sys.exit(1)
+          print(f"connected — {counties} counties, {crops} crops")
+          if not counties or not crops:
+              print("::error::Reference data missing. Run `python -m app.db.bootstrap` once.")
+              sys.exit(1)
+          PY
+
       - name: Ping Healthchecks (start)
         if: env.HEALTHCHECKS_URL != ''
-        run: curl -sf "${{ secrets.HEALTHCHECKS_URL }}/start" || true
+        run: curl -sf "$HEALTHCHECKS_URL/start" || true
 
       - name: Run nightly pipeline
         run: |
@@ -33,8 +75,8 @@ jobs:
 
       - name: Ping Healthchecks (success)
         if: success() && env.HEALTHCHECKS_URL != ''
-        run: curl -sf "${{ secrets.HEALTHCHECKS_URL }}" || true
+        run: curl -sf "$HEALTHCHECKS_URL" || true
 
       - name: Ping Healthchecks (failure)
         if: failure() && env.HEALTHCHECKS_URL != ''
-        run: curl -sf "${{ secrets.HEALTHCHECKS_URL }}/fail" || true
+        run: curl -sf "$HEALTHCHECKS_URL/fail" || true

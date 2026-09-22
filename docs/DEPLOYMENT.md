@@ -137,3 +137,24 @@ NEXT_PUBLIC_API_URL=https://furrowcast-api.onrender.com
 | Login sets cookie but request 401s | `FURROWCAST_COOKIE_SAMESITE=none` + `SECURE=1` not set (or site not HTTPS) |
 | Dashboard shows old/`localhost` API URL | `NEXT_PUBLIC_API_URL` changed but not redeployed → **Manual Deploy → Deploy** |
 | Free-tier service sleeps | Render free web services spin down after 15 min idle; first load after sleep is slow. Advisories come from Neon, no data loss. |
+
+## Nightly pipeline (GitHub Actions)
+
+The scheduled workflow (`.github/workflows/nightly-ingest.yml`, cron `0 5 * * *` UTC) needs
+its own secrets — it does **not** read Render's environment.
+
+| Secret | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | **yes** | the same Neon pooler URL the API uses. |
+| `HEALTHCHECKS_URL` | no | start/success/failure pings; unset means no pings. |
+
+Before running the pipeline the workflow prints the target host and database (never the
+credentials) and checks that `counties` and `crops` are populated, so a failure names its
+cause. If reference data is missing, run `python -m app.db.bootstrap` once against that
+database.
+
+**Note:** `HEALTHCHECKS_URL` must be declared in the workflow's `env:` block, not merely
+referenced as `${{ secrets.HEALTHCHECKS_URL }}` in a `run:`. The `if:` conditions read
+`env.HEALTHCHECKS_URL`, and an undeclared name evaluates to `''`, which silently skips
+every ping — including the failure one, which is how 36 consecutive failed runs went
+unnoticed.

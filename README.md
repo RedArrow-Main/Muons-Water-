@@ -72,6 +72,18 @@ Runs automatically (GitHub Actions cron `0 5 * * *` UTC, or local crontab via `s
 
 On-demand trigger: `POST /api/admin/refresh` (auth-protected). Manual run: `make nightly DATE=2026-08-17`.
 
+### Required GitHub Actions secrets
+
+Set under **Settings → Secrets and variables → Actions**:
+
+| Secret | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | **yes** | the database the nightly writes to. Without it the run aborts at *Check configuration*. |
+| `HEALTHCHECKS_URL` | no | ping URL for start/success/failure. Leave unset to skip the pings. |
+
+The workflow verifies both the connection and that reference data exists before doing any
+work, so a misconfigured run says which of the two is wrong instead of failing opaquely.
+
 ## Deploy (public demo — Render + Neon)
 
 Deliverables in-repo: `render.yaml` blueprint, `backend/Dockerfile`, `web/Dockerfile`.
