@@ -10,7 +10,7 @@ County-level planting-window and water-budget advisories for New York farmers �
 
 - **Backend:** Python 3.12 · FastAPI · SQLAlchemy 2 · Pydantic v2 · Alembic
 - **Database:** PostgreSQL 16 + PostGIS (local: docker-compose)
-- **Frontend:** Next.js 15 · TypeScript · Tailwind (frontend only — no API routes)
+- **Frontend:** Next.js 14 · TypeScript · Tailwind (frontend only — no API routes)
 - **SMS:** Twilio (only through `app/delivery/sender.py`)
 - **Auth:** Email + password (Argon2id). Dev bypass: `FURROWCAST_DEV_PUBLIC=1`
 - **Cron:** GitHub Actions scheduled workflow + local `scripts/nightly.sh`
