@@ -20,7 +20,45 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 ph = PasswordHasher()
 
 # Config
-SECRET_KEY = os.environ.get("SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
+_PLACEHOLDER_SECRET = "CHANGE_ME_IN_PRODUCTION"
+_DEV_SECRET = "dev-only-insecure-secret"
+
+
+def _load_secret_key() -> str:
+    """Return the JWT signing key, failing fast on a misconfigured deploy.
+
+    Previously this defaulted to the literal "CHANGE_ME_IN_PRODUCTION", so a
+    deploy that forgot to set SECRET_KEY would silently sign every session
+    token with a publicly known value — an authentication bypass that produced
+    no error and no log line.
+
+    Local development and the test suite are allowed to run without the env
+    var (they get an explicit dev key). Anything that looks like a real
+    deployment must supply its own: production is inferred from either
+    FURROWCAST_COOKIE_SECURE=1 (HTTPS cross-site cookies, i.e. a hosted
+    frontend) or an explicit FURROWCAST_ENV=production.
+    """
+    key = os.environ.get("SECRET_KEY", "").strip()
+    is_production = (
+        os.environ.get("FURROWCAST_ENV", "").lower() == "production"
+        or os.environ.get("FURROWCAST_COOKIE_SECURE", "0") == "1"
+    )
+
+    if is_production and (not key or key == _PLACEHOLDER_SECRET):
+        raise RuntimeError(
+            "SECRET_KEY is unset or still the placeholder "
+            f"({_PLACEHOLDER_SECRET!r}) while running in production "
+            "(FURROWCAST_ENV=production or FURROWCAST_COOKIE_SECURE=1). "
+            "Set SECRET_KEY to a strong random value — refusing to sign "
+            "session tokens with a publicly known key. See SPEC.md §6."
+        )
+
+    if not key or key == _PLACEHOLDER_SECRET:
+        return _DEV_SECRET
+    return key
+
+
+SECRET_KEY = _load_secret_key()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 # Cross-site cookies (frontend and API on different hosts, e.g. Render):
@@ -112,7 +150,7 @@ def get_db():
 
 
 def require_auth(
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_db),  # noqa: B008 — FastAPI dependency declaration
     session_token: str | None = Cookie(default=None, alias="session"),
 ) -> dict:
     """FastAPI dependency — raises 401 if not authenticated.

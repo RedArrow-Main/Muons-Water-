@@ -28,6 +28,7 @@ from app.engine.growth import (
     stage_label,
 )
 from app.engine.kc import kc_for_gdd_frac
+from app.engine.season import default_planting_date, julian_to_date
 from app.engine.water_balance import (
     CROP_PARAMS as ENGINE_CROP_PARAMS,
 )
@@ -37,22 +38,17 @@ from app.engine.water_balance import (
     should_irrigate,
     soil_water_step,
 )
+from app.ingest.open_meteo import fetch_archive_daily, tz_for_state
 from app.ingest.ssurgo import STATE_DEFAULTS as SOIL_STATE_DEFAULTS
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
 _FIPS_RE = re.compile(r"^\d{5}$")
-_STATE_TZ = {
-    "NY": "America/New_York",
-    "NE": "America/Chicago",
-    "IA": "America/Chicago",
-    "KS": "America/Chicago",
-}
 
 
 def _tz_for_state(state: str) -> str:
     """Open-Meteo daily buckets are timezone-sensitive; NY is Eastern."""
-    return _STATE_TZ.get(state, "America/New_York")
+    return tz_for_state(state)
 
 
 OPEN_METEO_FORECAST = (
@@ -60,21 +56,6 @@ OPEN_METEO_FORECAST = (
     "?latitude={lat}&longitude={lon}"
     "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration"
     "&temperature_unit=fahrenheit&precipitation_unit=inch&forecast_days=7&timezone={tz}"
-)
-
-
-OPEN_METEO_HISTORY = (
-    "https://archive-api.open-meteo.com/v1/archive"
-    "?latitude={lat}&longitude={lon}"
-    "&start_date={start}&end_date={end}"
-    "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration"
-    "&temperature_unit=fahrenheit&precipitation_unit=inch&timezone={tz}"
-)
-
-# SSURGO: get dominant component AWC for a lat/lon
-SSURGO_URL = (
-    "https://sdmdataaccess.nrcs.webkit.gov/api/RestSoilMapUnit"
-    "?lat={lat}&lon={lon}&key=&symbol=&months=&intensity=&area=&aession="
 )
 
 
@@ -240,13 +221,11 @@ def _historical_temps(fips: str, lat: float, lon: float,
     db_days = {r[0]: (r[1], r[2]) for r in rows
                if r[1] is not None and r[2] is not None}
 
-    url = OPEN_METEO_HISTORY.format(lat=lat, lon=lon, start=start_date, end=end_date, tz=tz)
-    data = _fetch_json(url, timeout=20)
-    if data and "daily" in data:
-        h = data["daily"]
-        times = h.get("time", [])
-        tmaxs = h.get("temperature_2m_max", [])
-        tmins = h.get("temperature_2m_min", [])
+    daily = fetch_archive_daily(lat, lon, start_date, end_date, tz=tz, timeout=20)
+    if daily:
+        times = daily.get("time", [])
+        tmaxs = daily.get("temperature_2m_max", [])
+        tmins = daily.get("temperature_2m_min", [])
         for i, day in enumerate(times):
             if i < len(tmaxs) and i < len(tmins):
                 merged[day] = (tmaxs[i], tmins[i])
@@ -312,6 +291,21 @@ def list_crops():
 # ---------------------------------------------------------------------------
 # GET /api/advisory/{fips} — full advisory, ALL LIVE DATA
 # ---------------------------------------------------------------------------
+def _initial_soil_pct(fips: str, crop_id: str, forecast_date: str) -> tuple[float, str, float, float]:
+    """Use today's spin-up state only; stale/other-crop records are unsuitable."""
+    with Session(engine) as session:
+        row = session.execute(text(
+            "SELECT dr.soil_moisture_pct, dr.soil_min_pct, dr.soil_max_pct FROM daily_records dr "
+            "JOIN field_cells fc ON fc.id = dr.cell_id "
+            "WHERE fc.county_fips = :f AND fc.crop_id = :crop "
+            "AND dr.record_date = :d AND dr.soil_moisture_pct BETWEEN 0 AND 100 "
+            "ORDER BY dr.id DESC LIMIT 1"
+        ), {"f": fips, "crop": crop_id, "d": forecast_date}).fetchone()
+    if row and row[1] is not None and row[2] is not None:
+        return (float(row[0]), "stored", float(row[1]), float(row[2]))
+    return (50.0, "assumed", 0.0, 100.0)
+
+
 @router.get("/advisory/{fips}")
 def get_advisory(
     fips: str = Path(pattern=r"^\d{5}$"),
@@ -363,15 +357,15 @@ def get_advisory(
     root_depth = crop["root_depth_in"]
 
     # Calendar days to maturity ≈ sum of the crop's stage-day splits
-    # (initial + development + mid + late). Falls back to 120 (corn) if unset.
-    maturity_days = 120
+    # (initial + development + mid + late). Falls back to 130 (corn) if unset.
+    maturity_days = 130
     if crop.get("stage_days"):
         try:
             maturity_days = sum(
                 int(x) for x in str(crop["stage_days"]).split(",") if x.strip()
             )
         except (ValueError, TypeError):
-            maturity_days = 120
+            maturity_days = 130
 
     # 3. Soil AWC — real county value from the soils table (seeded by the
     #    SSURGO ingest connector); fall back to the regional estimator only
@@ -395,13 +389,16 @@ def get_advisory(
     )
 
     # 4. Growth stage — GDD from planting_date → yesterday (historical temps)
-    if not planting_date:
-        def _fmt_julian(j: int) -> str:
-            d = datetime(2026, 1, 1).toordinal() + j - 1  # noqa: DTZ001
-            return datetime.fromordinal(d).strftime("%Y-%m-%d")
-        planting_date = _fmt_julian(frost_50 - maturity_days)  # latest safe plant date
-
     today = datetime.now()  # noqa: DTZ005
+
+    if not planting_date:
+        # The region's TYPICAL planting date, NOT the latest-safe-plant date —
+        # see app/engine/season.py. Must match advisor/service.py exactly:
+        # advisor and dashboard have to agree on gdd_frac for the same
+        # county / crop / date.
+        planting_date = default_planting_date(
+            frost_50, int(maturity_days), today.strftime("%Y-%m-%d")
+        )
     yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
     temps = _historical_temps(
         fips_db, lat, lon, planting_date, yesterday, tz=_tz_for_state(state)
@@ -422,6 +419,8 @@ def get_advisory(
 
     daily = fc_data["daily"]
     dates = daily.get("time", [])
+    if not dates:
+        raise HTTPException(502, "Forecast contains no daily data")
     tmax_list = daily.get("temperature_2m_max", [])
     tmin_list = daily.get("temperature_2m_min", [])
     precip_list = daily.get("precipitation_sum", [])
@@ -430,19 +429,17 @@ def get_advisory(
     # 6. Historical averages — fetch last 30 days LIVE
     hist_start = (today - timedelta(days=30)).strftime("%Y-%m-%d")
     hist_end = today.strftime("%Y-%m-%d")
-    hist_url = OPEN_METEO_HISTORY.format(
-        lat=lat, lon=lon, start=hist_start, end=hist_end, tz=_tz_for_state(state)
+    hist_daily = fetch_archive_daily(
+        lat, lon, hist_start, hist_end, tz=_tz_for_state(state), timeout=15
     )
-    hist_data = _fetch_json(hist_url, timeout=15)
 
     hist_avg_high = None
     hist_avg_low = None
     hist_total_rain = None
-    if hist_data and "daily" in hist_data:
-        h_daily = hist_data["daily"]
-        h_tmax = [v for v in h_daily.get("temperature_2m_max", []) if v is not None]
-        h_tmin = [v for v in h_daily.get("temperature_2m_min", []) if v is not None]
-        h_precip = [v for v in h_daily.get("precipitation_sum", []) if v is not None]
+    if hist_daily:
+        h_tmax = [v for v in hist_daily.get("temperature_2m_max", []) if v is not None]
+        h_tmin = [v for v in hist_daily.get("temperature_2m_min", []) if v is not None]
+        h_precip = [v for v in hist_daily.get("precipitation_sum", []) if v is not None]
         if h_tmax:
             hist_avg_high = sum(h_tmax) / len(h_tmax)
         if h_tmin:
@@ -468,14 +465,16 @@ def get_advisory(
 
     # 7. Compute everything in real-time (MAD is stage-adjusted)
     forecast = []
-    soil_water = 0.7 * aw  # assume 70% full at season start
+    initial_pct, soil_source, low_pct, high_pct = _initial_soil_pct(fips_db, crop_id, dates[0] if dates else today.strftime("%Y-%m-%d"))
+    soil_water = initial_pct / 100.0 * aw
+    low_sw, high_sw = low_pct / 100 * aw, high_pct / 100 * aw
     today_gdd = 0
     today_etc = 0
     today_depletion = 0
     today_soil_pct = 70.0
     today_action = "HOLD"
     today_rain = 0
-    cum_gdd = 0.0
+    forecast_gdd = cum_gdd
 
     for i, date_str in enumerate(dates):
         tmax = tmax_list[i] if i < len(tmax_list) else None
@@ -484,14 +483,19 @@ def get_advisory(
         et0 = et0_list[i] if i < len(et0_list) else None
 
         gdd = gdd_daily(tmax, tmin, base_temp) if tmax and tmin else 0
-        cum_gdd += gdd
-        gdd_frac = cum_gdd / gdd_to_maturity if gdd_to_maturity > 0 else 0.0
+        gdd_frac = forecast_gdd / gdd_to_maturity if gdd_to_maturity > 0 else 0.0
+        forecast_gdd += gdd
         stage_kc = kc_for_gdd_frac(crop_id, gdd_frac)
         etc_val = compute_etc(et0, stage_kc) if et0 else 0
         soil_water = soil_water_step(soil_water, aw, rain or 0, 0, etc_val)
+        low_sw = soil_water_step(low_sw, aw, rain or 0, 0, etc_val)
+        high_sw = soil_water_step(high_sw, aw, rain or 0, 0, etc_val)
+        uncertain = (1 - high_sw / aw < mad <= 1 - low_sw / aw) if aw > 0 else True
         dep = 1 - soil_water / aw if aw > 0 else 0
 
         if i == 0:  # today
+            today_uncertain = uncertain
+            today_low, today_high = low_sw / aw * 100, high_sw / aw * 100
             today_gdd = gdd
             today_etc = etc_val
             today_depletion = dep
@@ -511,15 +515,17 @@ def get_advisory(
             "soil_water": round(soil_water, 3),
             "depletion": round(dep, 4),
             "action": should_irrigate(dep, mad) if dep >= mad else "HOLD",
+            "advice_uncertain": uncertain,
         })
 
     # 7-day rain total
     rain_7d = sum(f.get("precip_in", 0) or 0 for f in forecast)
 
-    # Planting window
+    # Planting window — year anchored to today, never hardcoded
+    _ref = today.strftime("%Y-%m-%d")
+
     def fmt_j(j):
-        d = datetime(2026, 1, 1).toordinal() + j - 1  # noqa: DTZ001
-        return datetime.fromordinal(d).strftime("%Y-%m-%d")
+        return julian_to_date(int(j), _ref)
 
     return {
         "county": {
@@ -529,7 +535,7 @@ def get_advisory(
             "lat": lat,
             "lon": lon,
         },
-        "soil": {"type": soil_type, "awc": awc},
+        "soil": {"type": soil_type, "awc": awc, "water_source": soil_source},
         "crop": {
             "id": crop_id,
             "aw": round(aw, 2),
@@ -544,6 +550,9 @@ def get_advisory(
         },
         "forecast": forecast,
         "today": {
+            "advice_uncertain": today_uncertain,
+            "soil_min_pct": round(today_low, 2),
+            "soil_max_pct": round(today_high, 2),
             "gdd": round(today_gdd, 1),
             "etc": round(today_etc, 4),
             "soil_water": round(today_soil_water, 3),

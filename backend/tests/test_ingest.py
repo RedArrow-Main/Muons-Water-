@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
@@ -166,7 +165,7 @@ def test_ingest_run_logging():
                 INSERT INTO ingest_runs (source, started_at, finished_at, rows_upserted, status)
                 VALUES ('test_source', :started, :finished, 42, 'ok')
             """),
-            {"started": datetime.utcnow(), "finished": datetime.utcnow()},
+            {"started": datetime.now(timezone.utc), "finished": datetime.now(timezone.utc)},
         )
         session.commit()
         after = _get_count(session, "ingest_runs")

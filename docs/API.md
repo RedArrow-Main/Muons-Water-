@@ -1,11 +1,45 @@
 # API.md - API Contracts
-<!-- DOC VERSION: v1.7 | LAST UPDATED: 2026-08-29 | OWNER: principal -->
+<!-- DOC VERSION: v1.12 | LAST UPDATED: 2026-09-11 | OWNER: principal -->
 
 ## A.4 Contracts
 
 This file contains the API contracts for the furrowcast project.
 
 ## Changelog
+- v1.10 (2026-09-03): No shape change. `today.etc` in the `GET /api/advisory/{fips}`
+  sample moves 0.322 → 0.336 because corn `kc_mid` was corrected 1.15 → 1.20
+  (SPEC v1.27, DECISIONS D-014); ETc rises ~4% wherever gdd_frac > 0.10 for
+  corn, soy and alfalfa. Also fixed a stale sample: it showed
+  `growth_stage: "pollination"` with `depletion: 0.4` and `action: "HOLD"`,
+  which the stage-adjusted MAD (0.50 × 0.60 = 0.30) makes impossible — now
+  `IRRIGATE` with `irrigate_amount: 2.16`. The sample was stale against the
+  code, not the reverse.
+- v1.9 (2026-09-03): Behaviour change on `GET /api/advisory/{fips}` — response
+  SHAPE is unchanged, but values move (SPEC.md v1.25, DECISIONS D-010/D-011):
+  - `crop.mad` / `today.action`: the advisor now applies stage-adjusted MAD, so
+    the stored advisory and this endpoint agree. Previously the advisor used the
+    raw `mad_fraction` while this endpoint used the adjusted value, so a county
+    at pollination could show IRRIGATE here and HOLD in the stored advisory.
+  - `today.etc`: corn `kc_end` corrected 0.90 → 0.60, lowering ETc by ~15%
+    through grain fill (gdd_frac 0.62–0.90). Seedling/vegetative/pollination
+    values are unchanged.
+  - `crop.planting_date` when NOT supplied: now the region's typical planting
+    date (May 15) rather than the latest-safe-plant date, and the year is derived
+    from the request date rather than hardcoded to 2026. This shifts
+    `cumulative_gdd`, `gdd_pct`, `growth_stage` and therefore `mad` for every
+    request that omits `planting_date`.
+- v1.8 (2026-08-31): Documented that the stored `advisories` table is corn-only
+  in v1 (D-009). The `GET /api/advisory/{fips}` endpoint is crop-aware and
+  returns per-request crop data; the durable advisory record always carries
+  `crop_id = 'corn'`. No response shape change.
+- v1.7 (2026-08-29): Documented the `today` object's internal consistency
+  contract on `GET /api/advisory/{fips}` — `soil_water` (inches) and
+  `soil_pct` (0–100) describe the same root-zone water content
+  (`soil_pct ≈ soil_water / aw × 100`), and `depletion = 1 − soil_water / aw`.
+  `soil_water` is the day-0 value, NOT the end-of-forecast value. `action` is
+  `IRRIGATE` when `depletion ≥ mad` (the stage-adjusted MAD), else `HOLD`;
+  `irrigate_amount` is non-zero only on `IRRIGATE`. Clarification only — no
+  field added or removed, response shape unchanged.
 - v1.6 (2026-08-18): `GET /api/advisory/{fips}` now sources `soil.type` /
   `soil.awc` from the `soils` table (real per-county SSURGO values). The
   regional estimator is used only when a county has no soils row. Response
@@ -45,7 +79,9 @@ This file contains the API contracts for the furrowcast project.
 
 **Response:** Full advisory for a county, computed on-the-fly from DB data.
 The M3 stored advisory (advisories table) is for audit/hash-chain only;
-this endpoint always returns the rich dashboard format.
+this endpoint always returns the rich dashboard format. In v1, the stored
+advisory is always for `crop_id = 'corn'` (D-009); this endpoint returns
+the crop-specific result for the requested `crop_id`.
 
 ```json
 {
@@ -59,7 +95,7 @@ this endpoint always returns the rich dashboard format.
     "gdd_pct": 51.0, "cumulative_gdd": 1377.0, "gdd_to_maturity": 2700
   },
   "forecast": [{"date": "2026-08-06", "tmax_f": 89, "tmin_f": 71, ...}],
-  "today": {"gdd": 30, "etc": 0.322, "soil_water": 4.32, "soil_pct": 60.0, "depletion": 0.4, "action": "HOLD", "irrigate_amount": 0},
+  "today": {"gdd": 30, "etc": 0.336, "soil_water": 4.32, "soil_pct": 60.0, "depletion": 0.4, "action": "IRRIGATE", "irrigate_amount": 2.16},
   "history": {
     "july_avg_high": 85.0,
     "july_avg_low": 62.0,
@@ -183,3 +219,30 @@ Legacy `crop_ids: ["corn", "soy"]` still accepted (planting_date `null`).
 **Response:** Full run summary of the nightly pipeline (counts per connector,
 spin-up and advisory generation). Logs a `nightly_pipeline` row to
 `ingest_runs`, which updates `data_as_of` / `last_pipeline_at`.
+
+## Dashboard water-state correction (2026-09-08)
+
+Changelog: Preserve planting-to-yesterday GDD in crop metadata and initialize forecast Kc from that accumulated growth, advancing it after each forecast day. Initialize soil water from the latest matching county/crop record for the first forecast date (start-of-day spin-up); stale records are not used. Without a matching record, use an explicit 60% assumption. The additive `soil.water_source` field is `stored` or `assumed`; stored values are model outputs, not sensor observations.
+
+## Moisture initialization uncertainty (2026-09-11)
+Changelog: Nightly corn moisture replays complete daily history from the default
+planting date through yesterday. Replaying each day's ending water as the next
+day's starting water is equivalent to continuation, without the rolling-window
+reset or dependence on obsolete saved parameters. Incomplete weather skips the
+record. Initial dry/full endpoints (0 and AW) bound unknown starting water;
+their propagated midpoint populates the legacy point estimate. These bounds
+cover initialization only, not weather, soil-parameter or model error.
+`daily_records.soil_min_pct` and `soil_max_pct` store the unrounded bounds;
+legacy records have NULL bounds and are not treated as calibrated observations.
+Dashboard `today` adds `soil_min_pct`, `soil_max_pct`, and `advice_uncertain`.
+Forecast days add `advice_uncertain`. If the bounds straddle the irrigation
+threshold, the UI displays CHECK SOIL rather than the midpoint recommendation.
+Missing current-day bounds yield [0,100]% and an explicitly assumed midpoint;
+after applying weather, the bounds determine uncertainty. Stored advisory
+source_data also includes bounds and the uncertainty flag; automated SMS skips
+flagged advice (including uncertainty across the SCHEDULE threshold).
+No field-calibration claim is made. The full-capacity default remains only for
+legacy direct callers of the pure simulator; the nightly path supplies both
+endpoints explicitly. Lint cleanup removes dead bindings, sorts imports, uses
+UTC-aware timestamps, and documents intentional exception boundaries and FastAPI
+dependency declarations locally; checks remain enabled repository-wide.

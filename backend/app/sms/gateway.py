@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
 
 # ---------------------------------------------------------------------------
 # Message formatter — advisory dict → SMS text (≤160 chars)
@@ -91,7 +90,7 @@ class TwilioConfig:
     dry_run: bool = True
 
     @classmethod
-    def from_env(cls) -> "TwilioConfig":
+    def from_env(cls) -> TwilioConfig:
         import os
         sid = os.getenv("TWILIO_ACCOUNT_SID", "")
         token = os.getenv("TWILIO_AUTH_TOKEN", "")
@@ -135,7 +134,7 @@ def send_sms(session: Session, to: str, body: str,
         log_outbox(session, county_fips, to, body, status="sent",
                    twilio_sid=msg.sid)
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — report operation failure at this boundary
         log_outbox(session, county_fips, to, body, status="failed",
                    error=str(e))
         return False

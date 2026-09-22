@@ -49,7 +49,7 @@ def _normalize_crops(body: dict) -> list[dict]:
 # POST /api/farm — create a new farm
 # ---------------------------------------------------------------------------
 @router.post("/farm")
-def create_farm(body: dict, user: dict = Depends(_require_user)):
+def create_farm(body: dict, user: dict = Depends(_require_user)):  # noqa: B008 — FastAPI dependency declaration
     """Create a new farm for the current user.
 
     Body: { county_fips, name, acres?, crops: [{"crop_id", "planting_date"?}] }
@@ -121,7 +121,7 @@ def create_farm(body: dict, user: dict = Depends(_require_user)):
 # GET /api/farm — list all farms for current user
 # ---------------------------------------------------------------------------
 @router.get("/farm")
-def list_farms(user: dict = Depends(_require_user)):
+def list_farms(user: dict = Depends(_require_user)):  # noqa: B008 — FastAPI dependency declaration
     """Return all farms for the current user."""
     with Session(engine) as s:
         rows = s.execute(text(
@@ -151,7 +151,7 @@ def list_farms(user: dict = Depends(_require_user)):
 # DELETE /api/farm/{farm_id} — remove a farm
 # ---------------------------------------------------------------------------
 @router.delete("/farm/{farm_id}")
-def delete_farm(farm_id: int, user: dict = Depends(_require_user)):
+def delete_farm(farm_id: int, user: dict = Depends(_require_user)):  # noqa: B008 — FastAPI dependency declaration
     """Delete a farm owned by the current user."""
     with Session(engine) as s:
         farm = s.execute(text(

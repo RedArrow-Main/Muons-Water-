@@ -9,13 +9,21 @@ from app.main import app
 
 client = TestClient(app)
 
+
 # Shared auth session
 _TOKEN = None
+
+
 
 
 def setup_module():
     global _TOKEN
     with Session(engine) as s:
+        # Delete farms first (FK: farms.user_id -> users.id)
+        s.execute(text(
+            "DELETE FROM farms WHERE user_id IN "
+            "(SELECT id FROM users WHERE email = 'dash@test.com')"
+        ))
         s.execute(text("DELETE FROM users WHERE email = 'dash@test.com'"))
         s.commit()
     r = client.post("/api/auth/register", json={
@@ -23,6 +31,8 @@ def setup_module():
     })
     _TOKEN = r.cookies.get("session")
     client.cookies.set("session", _TOKEN)
+
+
 
 
 def teardown_module():
@@ -36,9 +46,12 @@ def teardown_module():
         s.commit()
 
 
+
+
 # ---------------------------------------------------------------------------
 # Health (public)
 # ---------------------------------------------------------------------------
+
 
 def test_health():
     r = client.get("/health")
@@ -46,9 +59,12 @@ def test_health():
     assert r.json()["ok"] is True
 
 
+
+
 # ---------------------------------------------------------------------------
 # Counties (public)
 # ---------------------------------------------------------------------------
+
 
 def test_list_counties():
     r = client.get("/api/counties")
@@ -60,9 +76,12 @@ def test_list_counties():
     assert "lat" in data[0]
 
 
+
+
 # ---------------------------------------------------------------------------
 # Crop Library (public)
 # ---------------------------------------------------------------------------
+
 
 def test_list_crops():
     r = client.get("/api/crops")
@@ -78,12 +97,27 @@ def test_list_crops():
     assert corn["mad_fraction"] == 0.5
 
 
+
+
 # ---------------------------------------------------------------------------
 # Advisory (auth required)
 # ---------------------------------------------------------------------------
 
+
 def test_get_advisory_cedar_ne():
+    """Legacy Corn Belt coverage — D-006 made NY the sole product scope, so
+    NE/IA/KS counties are legacy/stale and are NOT loaded by
+    `app.db.bootstrap` (NY-only, the standard local/CI setup — see
+    README.md Quickstart). They're only present if `app.db.seed` was also
+    run. Skip rather than fail when the row genuinely isn't seeded, so this
+    test doesn't flip pass/fail based on which seeding path was used; if the
+    county IS present (dev DB seeded from legacy data), still assert it
+    responds correctly.
+    """
     r = client.get("/api/advisory/31027")
+    if r.status_code == 404:
+        pytest.skip("NE county 31027 not seeded (bootstrap.py is NY-only per D-006); "
+                     "run `python -m app.db.seed` for legacy Corn Belt coverage")
     assert r.status_code == 200
     data = r.json()
     assert data["county"]["name"] == "Cedar"
@@ -96,12 +130,20 @@ def test_get_advisory_cedar_ne():
     assert "frost_50pct" in data["planting_window"]
 
 
+
+
 def test_get_advisory_story_ia():
+    """Legacy Corn Belt coverage — see test_get_advisory_cedar_ne docstring."""
     r = client.get("/api/advisory/19169")
+    if r.status_code == 404:
+        pytest.skip("IA county 19169 not seeded (bootstrap.py is NY-only per D-006); "
+                     "run `python -m app.db.seed` for legacy Corn Belt coverage")
     assert r.status_code == 200
     data = r.json()
     assert data["county"]["name"] == "Story"
     assert data["county"]["state"] == "IA"
+
+
 
 
 def test_get_advisory_uses_real_soil_from_db():
@@ -112,9 +154,49 @@ def test_get_advisory_uses_real_soil_from_db():
     assert abs(data["soil"]["awc"] - 0.1183) < 1e-4
 
 
+
+
+# ---------------------------------------------------------------------------
+# _get_soil_awc fallback — must not mislabel non-Corn-Belt states
+# ---------------------------------------------------------------------------
+
+
+def test_get_soil_awc_ny_uses_state_default_not_nebraska_bucket():
+    """A NY county with no `soils` row must fall back to the real NY SSURGO
+    state default (see app.ingest.ssurgo.STATE_DEFAULTS), not the legacy
+    Nebraska/Kansas/Iowa lat/lon buckets that used to catch any lat >= 41
+    (which covers all of NY) and silently returned another state's soil.
+    """
+    from app.dashboard.routes import _get_soil_awc
+    from app.ingest.ssurgo import STATE_DEFAULTS
+
+
+    # Genesee County, NY — real coordinates (~43.0 N, -78.2 W), lat >= 41
+    # used to fall into the "Nebraska" branch of the old lat/lon-only logic.
+    soil_type, awc = _get_soil_awc("NY", 43.0, -78.2)
+    assert (soil_type, awc) == STATE_DEFAULTS["NY"]
+    assert soil_type != "SAND"  # old NE-Sandhills-style value it used to risk
+
+
+
+
+def test_get_soil_awc_legacy_corn_belt_states_unaffected():
+    """KS/NE/IA keep their existing quadrant-bucket behavior."""
+    from app.dashboard.routes import _get_soil_awc
+
+
+    soil_type, awc = _get_soil_awc("NE", 42.5, -101.5)
+    assert soil_type  # still returns one of the legacy NE bucket values
+    assert 0.0 < awc < 1.0
+
+
+
+
 def test_get_advisory_not_found():
     r = client.get("/api/advisory/00000")
     assert r.status_code == 404
+
+
 
 
 def test_get_advisory_unauthenticated():
@@ -123,13 +205,18 @@ def test_get_advisory_unauthenticated():
     assert r.status_code == 401
 
 
+
+
 # ---------------------------------------------------------------------------
 # Advisory — crop + planting date, growth stage, stage-adjusted MAD
 # ---------------------------------------------------------------------------
 
+
 _MAD_FACTORS = {
     "vegetative": 1.0, "pollination": 0.6, "grain_fill": 0.8, "maturity": 1.0,
 }
+
+
 
 
 def test_get_advisory_with_crop_and_planting_date():
@@ -152,6 +239,8 @@ def test_get_advisory_with_crop_and_planting_date():
     assert "growth_stage" in crop
 
 
+
+
 def test_get_advisory_soy_stage_weight_lower():
     """Soy has same GDD base but deeper season — verify engine wiring."""
     r = client.get("/api/advisory/36037?crop_id=soy&planting_date=2026-08-01")
@@ -164,9 +253,13 @@ def test_get_advisory_soy_stage_weight_lower():
     )
 
 
+
+
 def test_get_advisory_unknown_crop_404():
     r = client.get("/api/advisory/36037?crop_id=banana&planting_date=2026-08-01")
     assert r.status_code == 404
+
+
 
 
 def test_get_advisory_default_planting_date():
@@ -176,6 +269,8 @@ def test_get_advisory_default_planting_date():
     crop = r.json()["crop"]
     assert crop["planting_date"]
     assert crop["growth_stage"] in _MAD_FACTORS
+
+
 
 
 def test_get_advisory_uses_farm_crop_default():
@@ -191,23 +286,30 @@ def test_get_advisory_uses_farm_crop_default():
         body = r.json()
         assert body["crops"] == [{"crop_id": "soy", "planting_date": "2026-08-01"}]
 
+
         r = client.get("/api/advisory/36037")
         assert r.status_code == 200
         crop = r.json()["crop"]
         assert crop["id"] == "soy"
         assert crop["planting_date"] == "2026-08-01"
     finally:
-        client.delete(f"/api/farm/{body['id']}")
+        if body and body.get("id"):
+            client.delete(f"/api/farm/{body['id']}")
+
+
 
 
 # ---------------------------------------------------------------------------
 # Outbox (auth required)
 # ---------------------------------------------------------------------------
 
+
 def test_get_outbox():
     r = client.get("/api/outbox/31027")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
 
 
 def test_get_outbox_unauthenticated():
@@ -216,9 +318,12 @@ def test_get_outbox_unauthenticated():
     assert r.status_code == 401
 
 
+
+
 # ---------------------------------------------------------------------------
 # Stats (auth required)
 # ---------------------------------------------------------------------------
+
 
 def test_get_stats():
     r = client.get("/api/stats")
@@ -232,15 +337,20 @@ def test_get_stats():
     assert "last_pipeline_rows" in data
 
 
+
+
 def test_get_stats_unauthenticated():
     c = TestClient(app, cookies={})
     r = c.get("/api/stats")
     assert r.status_code == 401
 
 
+
+
 # ---------------------------------------------------------------------------
 # Advisory data_as_of (pipeline freshness)
 # ---------------------------------------------------------------------------
+
 
 def test_get_advisory_data_as_of():
     r = client.get("/api/advisory/36037")
@@ -254,14 +364,19 @@ def test_get_advisory_data_as_of():
         data["data_as_of"]["last_pipeline_at"], str)
 
 
+
+
 # ---------------------------------------------------------------------------
 # Admin refresh (auth required)
 # ---------------------------------------------------------------------------
+
 
 def test_admin_refresh_unauthenticated():
     c = TestClient(app, cookies={})
     r = c.post("/api/admin/refresh", json={})
     assert r.status_code == 401
+
+
 
 
 def test_admin_refresh_runs_pipeline(monkeypatch):
@@ -276,11 +391,13 @@ def test_admin_refresh_runs_pipeline(monkeypatch):
     }
     calls = {}
 
+
     def fake_pipeline(_s, run_date, send_sms=False, states=("NY",)):
         calls["date"] = run_date
         calls["sms"] = send_sms
         calls["states"] = list(states)
         return fake
+
 
     import app.nightly as nightly_module
     monkeypatch.setattr(nightly_module, "run_pipeline", fake_pipeline)
@@ -290,3 +407,50 @@ def test_admin_refresh_runs_pipeline(monkeypatch):
     assert calls["date"] == "2026-08-17"
     assert calls["sms"] is False
     assert calls["states"] == ["NY"]
+
+@pytest.mark.parametrize("low,high,uncertain", [(60, 60, False), (0, 100, True)])
+def test_forecast_preserves_season_gdd_and_stored_water(monkeypatch, low, high, uncertain):
+    from app.dashboard import routes
+
+    monkeypatch.setattr(routes, '_historical_temps', lambda *a, **k: {
+        str(i): (89, 71) for i in range(46)
+    })
+    monkeypatch.setattr(routes, '_fetch_json', lambda *a, **k: {'daily': {
+        'time': ['2026-09-08'], 'temperature_2m_max': [89],
+        'temperature_2m_min': [71], 'precipitation_sum': [0],
+        'et0_fao_evapotranspiration': [0.28],
+    }})
+    monkeypatch.setattr(routes, 'fetch_archive_daily', lambda *a, **k: None)
+    monkeypatch.setattr(routes, '_initial_soil_pct', lambda *a: (60.0, 'stored', low, high), raising=False)
+    response = client.get('/api/advisory/36037?crop_id=corn&planting_date=2026-05-15')
+    assert response.status_code == 200
+    data = response.json()
+    assert data['crop']['cumulative_gdd'] == 1380
+    assert data['today']['etc'] == pytest.approx(0.336)
+    assert data['today']['advice_uncertain'] is uncertain
+    assert data['today']['soil_water'] == pytest.approx(
+        round(0.60 * data['crop']['aw'] - 0.336, 3), abs=0.004
+    )
+
+
+def test_initial_soil_uses_matching_date_and_crop():
+    from app.dashboard.routes import _initial_soil_pct
+
+    with Session(engine) as session:
+        cell = session.execute(text(
+            "INSERT INTO field_cells (county_fips,crop_id,row,col,soil_type,awc) "
+            "VALUES ('36037','soy',999,999,'test',0.2) RETURNING id"
+        )).scalar_one()
+        session.execute(text(
+            "INSERT INTO daily_records (cell_id,record_date,soil_moisture_pct,soil_min_pct,soil_max_pct) "
+            "VALUES (:id,'2099-01-01',42,42,42)"
+        ), {'id': cell})
+        session.commit()
+        try:
+            assert _initial_soil_pct('36037', 'soy', '2099-01-01') == (42, 'stored', 42, 42)
+            assert _initial_soil_pct('36037', 'corn', '2099-01-01') == (50, 'assumed', 0, 100)
+            assert _initial_soil_pct('36037', 'soy', '2099-01-02') == (50, 'assumed', 0, 100)
+        finally:
+            session.execute(text('DELETE FROM daily_records WHERE cell_id=:id'), {'id': cell})
+            session.execute(text('DELETE FROM field_cells WHERE id=:id'), {'id': cell})
+            session.commit()

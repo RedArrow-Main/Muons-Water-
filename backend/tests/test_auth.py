@@ -1,18 +1,21 @@
 """Tests for Auth — register, login, session, protected routes."""
-import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.db.connection import engine
-from app.auth.routes import hash_password
+from app.main import app
 
 client = TestClient(app)
 
 
 def _cleanup():
     with Session(engine) as s:
+        # Delete farms first (FK: farms.user_id -> users.id)
+        s.execute(text(
+            "DELETE FROM farms WHERE user_id IN "
+            "(SELECT id FROM users WHERE email LIKE '%@test.com')"
+        ))
         s.execute(text("DELETE FROM users WHERE email LIKE '%@test.com'"))
         s.commit()
 

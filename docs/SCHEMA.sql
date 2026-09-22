@@ -1,8 +1,9 @@
--- SCHEMA.sql — furrowcast v1.15
+-- SCHEMA.sql — furrowcast v1.16
 -- Source of truth for the database schema.
 -- SQLAlchemy models in app/db/models.py must match this file exactly.
 --
 -- Changelog:
+--   v1.16 (2026-09-11): m13 nullable soil_min_pct/soil_max_pct and range check.
 --   v1.15 (2026-08-28): Added `subscribers` table (drives optional nightly
 --          SMS send; fixes a missing-table crash in nightly.py::_send_sms_advisories).
 --          Renamed daily_records et0_mm/rainfall_mm/irrigation_mm -> *_in to match
@@ -133,6 +134,9 @@ CREATE TABLE daily_records (
     rainfall_in     DOUBLE PRECISION,
     irrigation_in   DOUBLE PRECISION,
     soil_moisture_pct DOUBLE PRECISION,
+    soil_min_pct    DOUBLE PRECISION,
+    soil_max_pct    DOUBLE PRECISION,
+    CONSTRAINT soil_range_valid CHECK (soil_min_pct >= 0 AND soil_max_pct <= 100 AND soil_min_pct <= soil_max_pct),
     gdd             DOUBLE PRECISION,
     growth_stage    VARCHAR(20)
 );
@@ -227,3 +231,5 @@ CREATE TABLE farm_crops (
     planting_date   VARCHAR(10),              -- YYYY-MM-DD (nullable)
     PRIMARY KEY (farm_id, crop_id)
 );
+
+-- 2026-09-11: m13 adds nullable initialization-moisture bounds; legacy rows remain NULL.

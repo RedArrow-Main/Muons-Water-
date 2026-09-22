@@ -181,6 +181,8 @@ class DailyRecord(Base):
     rainfall_in = Column(Float, nullable=True)
     irrigation_in = Column(Float, nullable=True)
     soil_moisture_pct = Column(Float, nullable=True)
+    soil_min_pct = Column(Float, nullable=True)
+    soil_max_pct = Column(Float, nullable=True)
     gdd = Column(Float, nullable=True)
     growth_stage = Column(String(20), nullable=True)
 

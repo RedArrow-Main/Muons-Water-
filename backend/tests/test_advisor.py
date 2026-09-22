@@ -2,11 +2,128 @@
 from __future__ import annotations
 
 import json
+from datetime import date as _date
+from datetime import timedelta as _timedelta
+
 import pytest
 
-from app.advisor.narrative import build_narrative, _days_until_trigger, SEVERITY
 from app.advisor.compose import build_advisory, verify_chain
-from app.advisor.service import generate_advisory, _build_water_state, generate_all
+from app.advisor.narrative import SEVERITY, _days_until_trigger, build_narrative
+from app.advisor.service import _build_water_state, generate_advisory, generate_all
+
+# ─── Reference-data protection ────────────────────────────────────────────
+
+_NY_COUNTIES_SQL = (
+    "SELECT fips, name, state, latitude, longitude, frost_kill_50 "
+    "FROM counties WHERE state = 'NY'"
+)
+
+_NY_SOILS_SQL = (
+    "SELECT s.county_fips, s.soil_type, s.awc FROM soils s "
+    "JOIN counties c ON c.fips = s.county_fips WHERE c.state = 'NY'"
+)
+
+_ALL_CROPS_SQL = (
+    "SELECT id, base_temp_f, gdd_total, root_depth_in, mad_fraction, "
+    "kc_initial, kc_mid, kc_end, stage_days FROM crops"
+)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _preserve_reference_data():
+    """Snapshot `soils` (NY) and `crops` rows before this module; restore after.
+
+    Several tests here overwrite soils with synthetic ('SILT LOAM', 0.20)
+    values via ON CONFLICT DO UPDATE, clobbering the real SSURGO values seeded
+    by app.db.bootstrap (e.g. Albany 36001 is 'silt loam' / 0.1633).
+
+    Tests also upsert crops (e.g. corn with test-residue stage_days
+    '30,40,50,25' instead of seed.py's '25,35,45,25'), corrupting the
+    reference table for every subsequent test and for the agronomist's
+    kc_end investigation.
+
+    Restoring from a snapshot, rather than deleting on a value match, stays
+    correct no matter which counties or crops future tests touch.
+    """
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+
+    from app.db.connection import engine
+
+    with Session(engine) as session:
+        counties_snapshot = {
+            r[0]: (r[1], r[2], r[3], r[4], r[5])
+            for r in session.execute(text(_NY_COUNTIES_SQL)).fetchall()
+        }
+        soils_snapshot = {
+            r[0]: (r[1], r[2])
+            for r in session.execute(text(_NY_SOILS_SQL)).fetchall()
+        }
+        crops_snapshot = {
+            r[0]: (r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8])
+            for r in session.execute(text(_ALL_CROPS_SQL)).fetchall()
+        }
+
+    yield
+
+    with Session(engine) as session:
+        # --- Remove all child rows for synthetic test counties (FK order) ---
+        synthetic = {r[0] for r in session.execute(text(
+            "SELECT fips FROM counties WHERE state = 'NY'"
+        )).fetchall()} - set(counties_snapshot)
+        for fips in synthetic:
+            session.execute(text("DELETE FROM daily_historical WHERE county_fips = :f"), {"f": fips})
+            session.execute(text("DELETE FROM daily_forecast WHERE county_fips = :f"), {"f": fips})
+            session.execute(text("DELETE FROM advisories WHERE county_fips = :f"), {"f": fips})
+            session.execute(text("DELETE FROM soils WHERE county_fips = :f"), {"f": fips})
+            session.execute(text("DELETE FROM counties WHERE fips = :f"), {"f": fips})
+
+        # --- Restore counties (lat/lon/frost values overwritten by tests) ---
+        for fips, (name, state, lat, lon, frost) in counties_snapshot.items():
+            session.execute(text(
+                "INSERT INTO counties (fips, name, state, latitude, longitude, frost_kill_50) "
+                "VALUES (:f, :n, :s, :lat, :lon, :fr) "
+                "ON CONFLICT (fips) DO UPDATE SET "
+                "name = EXCLUDED.name, state = EXCLUDED.state, "
+                "latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, "
+                "frost_kill_50 = EXCLUDED.frost_kill_50"
+            ), {"f": fips, "n": name, "s": state, "lat": lat, "lon": lon, "fr": frost})
+
+        # --- Restore soils ---
+        for fips, (soil_type, awc) in soils_snapshot.items():
+            session.execute(text(
+                "INSERT INTO soils (county_fips, soil_type, awc) "
+                "VALUES (:f, :t, :a) "
+                "ON CONFLICT (county_fips) DO UPDATE SET "
+                "soil_type = EXCLUDED.soil_type, awc = EXCLUDED.awc"
+            ), {"f": fips, "t": soil_type, "a": awc})
+
+        # --- Restore crops ---
+        current_crops = {r[0] for r in session.execute(text(
+            "SELECT id FROM crops"
+        )).fetchall()}
+        for crop_id in current_crops - set(crops_snapshot):
+            session.execute(
+                text("DELETE FROM crops WHERE id = :id"), {"id": crop_id}
+            )
+        for crop_id, (base_f, gdd, root, mad, kc_i, kc_m, kc_e, stages) in crops_snapshot.items():
+            session.execute(text(
+                "INSERT INTO crops (id, base_temp_f, gdd_total, root_depth_in, "
+                "mad_fraction, kc_initial, kc_mid, kc_end, stage_days) "
+                "VALUES (:id, :bf, :gdd, :root, :mad, :ki, :km, :ke, :st) "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "base_temp_f = EXCLUDED.base_temp_f, "
+                "gdd_total = EXCLUDED.gdd_total, "
+                "root_depth_in = EXCLUDED.root_depth_in, "
+                "mad_fraction = EXCLUDED.mad_fraction, "
+                "kc_initial = EXCLUDED.kc_initial, "
+                "kc_mid = EXCLUDED.kc_mid, "
+                "kc_end = EXCLUDED.kc_end, "
+                "stage_days = EXCLUDED.stage_days"
+            ), {"id": crop_id, "bf": base_f, "gdd": gdd, "root": root,
+                "mad": mad, "ki": kc_i, "km": kc_m, "ke": kc_e, "st": stages})
+
+        session.commit()
 
 
 # ─── Fixture data ───────────────────────────────────────────────────────
@@ -365,12 +482,12 @@ class TestNarrativeGracefulZeroEtc:
 
     def test_no_999_in_headline(self):
         """Headline must not contain '999'."""
-        decision, severity, headline, body = build_narrative(SCHEDULE_ZERO_ETC_STATE)
+        _decision, _severity, headline, _body = build_narrative(SCHEDULE_ZERO_ETC_STATE)
         assert "999" not in headline, f"Headline contains sentinel: {headline}"
 
     def test_no_999_in_body(self):
         """Body must not contain '999'."""
-        decision, severity, headline, body = build_narrative(SCHEDULE_ZERO_ETC_STATE)
+        _decision, _severity, _headline, body = build_narrative(SCHEDULE_ZERO_ETC_STATE)
         assert "999" not in body, f"Body contains sentinel: {body}"
 
     def test_still_schedules(self):
@@ -489,6 +606,422 @@ class TestScopeCheck:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# TASK 2 — missing history must not produce advisory with seedling Kc
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestMissingHistorySkipsAdvisory:
+    """A county with no daily_historical rows and a failed live fetch must NOT
+    produce an advisory computed at kc_initial with 60% default soil moisture."""
+
+    def test_no_history_returns_none_when_fetch_fails(self):
+        """_build_water_state returns None when zero history rows AND live archive fetch fails."""
+        from unittest.mock import patch
+
+        from sqlalchemy import text
+        from sqlalchemy.orm import Session
+
+        from app.db.connection import engine
+
+        test_fips = "T9001"
+        with Session(engine) as session:
+            # Ensure county exists with required data (synthetic FIPS — never 36001)
+            session.execute(text(
+                "INSERT INTO counties (fips, name, state, latitude, longitude, frost_kill_50) "
+                "VALUES (:f, 'TestAlbany', 'NY', 42.65, -73.75, 280) "
+                "ON CONFLICT (fips) DO UPDATE SET frost_kill_50 = 280"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO soils (county_fips, soil_type, awc) "
+                "VALUES (:f, 'SILT LOAM', 0.20) "
+                "ON CONFLICT (county_fips) DO UPDATE SET soil_type = 'SILT LOAM', awc = 0.20"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO crops (id, base_temp_f, root_depth_in, mad_fraction, "
+                "kc_initial, kc_mid, kc_end, gdd_total, stage_days) "
+                "VALUES ('corn', 50, 36, 0.50, 0.30, 1.15, 0.90, 2700, '30,40,50,25') "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "base_temp_f=50, root_depth_in=36, mad_fraction=0.50, "
+                "kc_initial=0.30, kc_mid=1.15, kc_end=0.90, gdd_total=2700, "
+                "stage_days='30,40,50,25'"
+            ))
+
+            # Ensure NO daily_historical rows for this county
+            session.execute(text(
+                "DELETE FROM daily_historical WHERE county_fips = :f"
+            ), {"f": test_fips})
+
+            # Ensure forecast exists
+            session.execute(text(
+                "DELETE FROM daily_forecast WHERE county_fips = :f"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO daily_forecast "
+                "(county_fips, forecast_date, tmax_f, tmin_f, precip_in, et0_in, source) "
+                "VALUES (:f, '2026-08-31', 85.0, 65.0, 0.0, 0.25, 'test_seed')"
+            ), {"f": test_fips})
+
+            session.commit()
+
+            # Mock fetch_archive_daily to return None (simulates failed live archive fetch)
+            with patch("app.advisor.service.fetch_archive_daily", return_value=None):
+                state, _reason = _build_water_state(session, test_fips, "2026-08-31")
+
+            assert state is None, (
+                f"Expected None when no daily_historical rows and fetch fails, got {state}"
+            )
+
+    def test_partial_history_skipped_when_fetch_fails(self):
+        """A county with only recent daily_historical rows AND a failed live fetch
+        must be skipped (return None), NOT produce an advisory from the truncated window.
+
+        This is the round-6 gap: the old guard checked hist_rows == 0, but a county
+        with 14 recent rows has hist_rows > 0 and would silently produce a seedling-band
+        advisory even though coverage back to planting_date was never achieved.
+        """
+        from unittest.mock import patch
+
+        from sqlalchemy import text
+        from sqlalchemy.orm import Session
+
+        from app.db.connection import engine
+
+        test_fips = "T9002"
+        with Session(engine) as session:
+            session.execute(text(
+                "INSERT INTO counties (fips, name, state, latitude, longitude, frost_kill_50) "
+                "VALUES (:f, 'TestAlbany', 'NY', 42.65, -73.75, 280) "
+                "ON CONFLICT (fips) DO UPDATE SET "
+                "latitude = 42.65, longitude = -73.75, frost_kill_50 = 280"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO soils (county_fips, soil_type, awc) "
+                "VALUES (:f, 'SILT LOAM', 0.20) "
+                "ON CONFLICT (county_fips) DO UPDATE SET soil_type = 'SILT LOAM', awc = 0.20"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO crops (id, base_temp_f, root_depth_in, mad_fraction, "
+                "kc_initial, kc_mid, kc_end, gdd_total, stage_days) "
+                "VALUES ('corn', 50, 36, 0.50, 0.30, 1.15, 0.90, 2700, '30,40,50,25') "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "base_temp_f=50, root_depth_in=36, mad_fraction=0.50, "
+                "kc_initial=0.30, kc_mid=1.15, kc_end=0.90, gdd_total=2700, "
+                "stage_days='30,40,50,25'"
+            ))
+
+            # Seed only 14 recent rows — covers Aug 17-30 but NOT planting_date (May 30)
+            session.execute(text(
+                "DELETE FROM daily_historical WHERE county_fips = :f"
+            ), {"f": test_fips})
+            for day in range(17, 31):
+                session.execute(text(
+                    "INSERT INTO daily_historical "
+                    "(county_fips, obs_date, tmax_f, tmin_f, precip_in, et0_in) "
+                    "VALUES (:f, :d, 80.0, 60.0, 0.1, 0.2)"
+                ), {"f": test_fips, "d": f"2026-08-{day:02d}"})
+
+            # Ensure forecast exists
+            session.execute(text(
+                "DELETE FROM daily_forecast WHERE county_fips = :f"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO daily_forecast "
+                "(county_fips, forecast_date, tmax_f, tmin_f, precip_in, et0_in, source) "
+                "VALUES (:f, '2026-08-31', 85.0, 65.0, 0.0, 0.25, 'test_seed')"
+            ), {"f": test_fips})
+
+            session.commit()
+
+            # Verify partial coverage: 14 rows, earliest Aug 17, planting_date May 30
+            r = session.execute(text(
+                "SELECT COUNT(*), MIN(obs_date) FROM daily_historical "
+                "WHERE county_fips = :f"
+            ), {"f": test_fips}).fetchone()
+            assert r[0] == 14, f"Expected 14 rows, got {r[0]}"
+            assert r[1] == "2026-08-17", f"Expected earliest Aug 17, got {r[1]}"
+
+            # Mock fetch_archive_daily to return None (simulates failed live archive fetch)
+            with patch("app.advisor.service.fetch_archive_daily", return_value=None):
+                state, _reason = _build_water_state(session, test_fips, "2026-08-31")
+
+            # MUST return None — 14 rows is not enough coverage back to planting_date
+            assert state is None, (
+                "Expected None with partial history + failed fetch, got state "
+                "(gdd_frac would be from truncated window)"
+            )
+
+    def test_live_fetch_fills_gap_to_planting_date(self):
+        """When daily_historical only has recent rows, live fetch fills the gap
+        back to planting_date so GDD accumulation is complete."""
+        from sqlalchemy import text
+        from sqlalchemy.orm import Session
+
+        from app.advisor.service import _ensure_history_coverage
+        from app.db.connection import engine
+
+        test_fips = "T9003"
+        with Session(engine) as session:
+            # Set up county with lat/lon (synthetic FIPS — never 36001)
+            session.execute(text(
+                "INSERT INTO counties (fips, name, state, latitude, longitude, frost_kill_50) "
+                "VALUES (:f, 'TestAlbany', 'NY', 42.65, -73.75, 280) "
+                "ON CONFLICT (fips) DO UPDATE SET "
+                "latitude = 42.65, longitude = -73.75, frost_kill_50 = 280"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO soils (county_fips, soil_type, awc) "
+                "VALUES (:f, 'SILT LOAM', 0.20) "
+                "ON CONFLICT (county_fips) DO UPDATE SET soil_type = 'SILT LOAM', awc = 0.20"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO crops (id, base_temp_f, root_depth_in, mad_fraction, "
+                "kc_initial, kc_mid, kc_end, gdd_total, stage_days) "
+                "VALUES ('corn', 50, 36, 0.50, 0.30, 1.15, 0.90, 2700, '30,40,50,25') "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "base_temp_f=50, root_depth_in=36, mad_fraction=0.50, "
+                "kc_initial=0.30, kc_mid=1.15, kc_end=0.90, gdd_total=2700, "
+                "stage_days='30,40,50,25'"
+            ))
+
+            # Clear all history first
+            session.execute(text(
+                "DELETE FROM daily_historical WHERE county_fips = :f"
+            ), {"f": test_fips})
+
+            # Insert only 7 rows of history (partial — missing most of the season)
+            for i in range(7):
+                session.execute(text(
+                    "INSERT INTO daily_historical "
+                    "(county_fips, obs_date, tmax_f, tmin_f, precip_in, et0_in) "
+                    "VALUES (:f, :d, 80.0, 60.0, 0.1, 0.2)"
+                ), {"f": test_fips, "d": f"2026-08-{24+i:02d}"})
+            session.commit()
+
+            # Verify only 7 rows exist
+            count_before = session.execute(text(
+                "SELECT COUNT(*) FROM daily_historical WHERE county_fips = :f"
+            ), {"f": test_fips}).fetchone()[0]
+            assert count_before == 7
+
+            # Call _ensure_history_coverage — should fetch the gap from live archive
+            covered = _ensure_history_coverage(
+                session, test_fips, 42.65, -73.75,
+                "2026-05-15", "2026-08-30"
+            )
+            assert covered is True, "_ensure_history_coverage should return True when fetch succeeds"
+
+            # Verify rows were added (live archive fills the gap)
+            count_after = session.execute(text(
+                "SELECT COUNT(*) FROM daily_historical WHERE county_fips = :f"
+            ), {"f": test_fips}).fetchone()[0]
+
+            # Should have significantly more rows now (planting to yesterday ≈ 107 days)
+            assert count_after > count_before, (
+                f"Expected live fetch to add rows: before={count_before}, after={count_after}"
+            )
+            assert count_after >= 100, (
+                f"Expected ≥100 rows covering May 30–Aug 30, got {count_after}"
+            )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STAGE-ADJUSTED MAD — advisor must use adjusted_mad, not raw base_mad
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestAdvisorUsesStageAdjustedMad:
+    """_build_water_state must apply adjusted_mad(base_mad, gdd_frac).
+
+    SPEC.md §4: adjusted_mad = base_mad × stage_mad_factor(stage).
+    At pollination (gdd_frac 0.50–0.62) the factor is 0.60, so corn's
+    0.50 MAD becomes 0.30. A depletion of 0.35 must yield IRRIGATE.
+    """
+
+    def test_pollination_mad_is_stage_adjusted(self):
+        """_build_water_state returns stage-adjusted mad (0.30), not raw 0.50."""
+        from sqlalchemy import text
+        from sqlalchemy.orm import Session
+
+        from app.db.connection import engine
+
+        test_fips = "T9004"
+        with Session(engine) as session:
+            # County (synthetic FIPS — never 36001)
+            session.execute(text(
+                "INSERT INTO counties (fips, name, state, latitude, longitude, frost_kill_50) "
+                "VALUES (:f, 'TestAlbany', 'NY', 42.65, -73.75, 280) "
+                "ON CONFLICT (fips) DO UPDATE SET "
+                "latitude = 42.65, longitude = -73.75, frost_kill_50 = 280"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO soils (county_fips, soil_type, awc) "
+                "VALUES (:f, 'SILT LOAM', 0.20) "
+                "ON CONFLICT (county_fips) DO UPDATE SET soil_type = 'SILT LOAM', awc = 0.20"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO crops (id, base_temp_f, root_depth_in, mad_fraction, "
+                "kc_initial, kc_mid, kc_end, gdd_total, stage_days) "
+                "VALUES ('corn', 50, 36, 0.50, 0.30, 1.15, 0.90, 2700, '25,35,45,25') "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "base_temp_f=50, root_depth_in=36, mad_fraction=0.50, "
+                "kc_initial=0.30, kc_mid=1.15, kc_end=0.90, gdd_total=2700, "
+                "stage_days='25,35,45,25'"
+            ))
+
+            # Clear history and seed enough to land in the pollination band.
+            session.execute(text(
+                "DELETE FROM daily_historical WHERE county_fips = :f"
+            ), {"f": test_fips})
+            # Seed the FULL window, starting at the DERIVED PLANTING DATE, so
+            # this test is hermetic — no live Open-Meteo gap-fill required.
+            #
+            # The default planting date is the region's TYPICAL date (May 15),
+            # not the latest-safe-plant date — see app/engine/season.py and
+            # DECISIONS.md D-011. Any gap between planting_date and the first
+            # seeded row makes _ensure_history_coverage attempt a live archive
+            # fetch; with no network the coverage guard returns None and
+            # _build_water_state bails before reaching any assertion.
+            #
+            # GDD/day = (84 + 64)/2 − 50 = 24.  May 15 → Jul 20 = 67 days.
+            #   67 × 24 = 1608 GDD → gdd_frac = 1608/2700 = 0.596
+            #   → pollination band (0.50–0.62) → MAD factor 0.60
+            #   → adjusted mad = 0.50 × 0.60 = 0.30
+            #
+            # 85/65 would give 25 GDD/day → 1675 → gdd_frac 0.620, which lands
+            # just OUTSIDE pollination in grain fill. 84/64 keeps clear margin
+            # from both band edges.
+            _seed_day = _date(2026, 5, 15)
+            while _seed_day <= _date(2026, 7, 20):
+                session.execute(text(
+                    "INSERT INTO daily_historical "
+                    "(county_fips, obs_date, tmax_f, tmin_f, precip_in, et0_in) "
+                    "VALUES (:f, :d, 84.0, 64.0, 0.1, 0.25)"
+                ), {"f": test_fips, "d": _seed_day.isoformat()})
+                _seed_day += _timedelta(days=1)
+
+            # Forecast — depletion ≈ 0.35 (above adjusted MAD of 0.30, below raw 0.50)
+            session.execute(text(
+                "DELETE FROM daily_forecast WHERE county_fips = :f"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO daily_forecast "
+                "(county_fips, forecast_date, tmax_f, tmin_f, precip_in, et0_in, source) "
+                "VALUES (:f, '2026-07-21', 85.0, 65.0, 0.0, 0.28, 'test_seed')"
+            ), {"f": test_fips})
+            session.commit()
+
+            state, _reason = _build_water_state(session, test_fips, "2026-07-21")
+
+        assert state is not None, "water_state should not be None with sufficient data"
+        # Corn base_mad=0.50, at pollination factor=0.60 → adjusted mad=0.30
+        assert state["mad"] == 0.30, (
+            f"Expected stage-adjusted mad=0.30 at pollination, got {state['mad']}"
+        )
+        assert state["base_mad"] == 0.50, (
+            f"Expected base_mad=0.50 (raw), got {state['base_mad']}"
+        )
+
+    def test_pollination_depletion_above_adjusted_mad_yields_irrigate(self):
+        """depletion=0.35 >= adjusted_mad=0.30 → IRRIGATE (not HOLD)."""
+
+        from sqlalchemy import text
+        from sqlalchemy.orm import Session
+
+        from app.advisor.service import generate_advisory
+        from app.db.connection import engine
+
+        test_fips = "T9005"
+        with Session(engine) as session:
+            session.execute(text(
+                "INSERT INTO counties (fips, name, state, latitude, longitude, frost_kill_50) "
+                "VALUES (:f, 'TestAlbany', 'NY', 42.65, -73.75, 280) "
+                "ON CONFLICT (fips) DO UPDATE SET "
+                "latitude = 42.65, longitude = -73.75, frost_kill_50 = 280"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO soils (county_fips, soil_type, awc) "
+                "VALUES (:f, 'SILT LOAM', 0.20) "
+                "ON CONFLICT (county_fips) DO UPDATE SET soil_type = 'SILT LOAM', awc = 0.20"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO crops (id, base_temp_f, root_depth_in, mad_fraction, "
+                "kc_initial, kc_mid, kc_end, gdd_total, stage_days) "
+                "VALUES ('corn', 50, 36, 0.50, 0.30, 1.15, 0.90, 2700, '25,35,45,25') "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "base_temp_f=50, root_depth_in=36, mad_fraction=0.50, "
+                "kc_initial=0.30, kc_mid=1.15, kc_end=0.90, gdd_total=2700, "
+                "stage_days='25,35,45,25'"
+            ))
+
+            # Clean slate — remove leftover daily_records/field_cells from prior tests
+            cell_ids = session.execute(text(
+                "SELECT id FROM field_cells WHERE county_fips = :f"
+            ), {"f": test_fips}).fetchall()
+            for (cid,) in cell_ids:
+                session.execute(text(
+                    "DELETE FROM daily_records WHERE cell_id = :cid"
+                ), {"cid": cid})
+            session.execute(text(
+                "DELETE FROM field_cells WHERE county_fips = :f"
+            ), {"f": test_fips})
+
+            # Clear history and seed enough to land in the pollination band.
+            session.execute(text(
+                "DELETE FROM daily_historical WHERE county_fips = :f"
+            ), {"f": test_fips})
+            # Seed the FULL window, starting at the DERIVED PLANTING DATE, so
+            # this test is hermetic — no live Open-Meteo gap-fill required.
+            #
+            # The default planting date is the region's TYPICAL date (May 15),
+            # not the latest-safe-plant date — see app/engine/season.py and
+            # DECISIONS.md D-011. Any gap between planting_date and the first
+            # seeded row makes _ensure_history_coverage attempt a live archive
+            # fetch; with no network the coverage guard returns None and
+            # _build_water_state bails before reaching any assertion.
+            #
+            # GDD/day = (84 + 64)/2 − 50 = 24.  May 15 → Jul 20 = 67 days.
+            #   67 × 24 = 1608 GDD → gdd_frac = 1608/2700 = 0.596
+            #   → pollination band (0.50–0.62) → MAD factor 0.60
+            #   → adjusted mad = 0.50 × 0.60 = 0.30
+            #
+            # 85/65 would give 25 GDD/day → 1675 → gdd_frac 0.620, which lands
+            # just OUTSIDE pollination in grain fill. 84/64 keeps clear margin
+            # from both band edges.
+            _seed_day = _date(2026, 5, 15)
+            while _seed_day <= _date(2026, 7, 20):
+                session.execute(text(
+                    "INSERT INTO daily_historical "
+                    "(county_fips, obs_date, tmax_f, tmin_f, precip_in, et0_in) "
+                    "VALUES (:f, :d, 84.0, 64.0, 0.1, 0.25)"
+                ), {"f": test_fips, "d": _seed_day.isoformat()})
+                _seed_day += _timedelta(days=1)
+
+            session.execute(text(
+                "DELETE FROM daily_forecast WHERE county_fips = :f"
+            ), {"f": test_fips})
+            session.execute(text(
+                "INSERT INTO daily_forecast "
+                "(county_fips, forecast_date, tmax_f, tmin_f, precip_in, et0_in, source) "
+                "VALUES (:f, '2026-07-21', 85.0, 65.0, 0.0, 0.28, 'test_seed')"
+            ), {"f": test_fips})
+            session.commit()
+
+            state, _reason = _build_water_state(session, test_fips, "2026-07-21")
+
+        assert state is not None
+        assert state["mad"] == 0.30, (
+            f"Expected stage-adjusted mad=0.30, got {state['mad']}"
+        )
+        # Default soil_pct=60%, sw=0.6*7.2=4.32, etc≈0.32 → depletion≈0.44
+        # That's above adjusted_mad=0.30 → must be IRRIGATE
+        advisory = generate_advisory(test_fips, "2026-07-21", state)
+        assert advisory is not None
+        assert advisory["decision"] == "IRRIGATE", (
+            f"Expected IRRIGATE at pollination with depletion>{state['mad']}, "
+            f"got {advisory['decision']} (depletion={state['depletion']:.4f})"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # SPIN-UP INTEGRATION — service.py reads daily_records when present
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -500,8 +1033,8 @@ class TestSpinupIntegration:
         """When daily_records has a row, _build_water_state uses its soil_moisture_pct."""
         from sqlalchemy import text
         from sqlalchemy.orm import Session
+
         from app.db.connection import engine
-        from app.advisor.service import _build_water_state
 
         # Use Cedar NE (31027) — has soil, crop, and forecast data
         with Session(engine) as s:
@@ -531,7 +1064,7 @@ class TestSpinupIntegration:
             s.commit()
 
             # _build_water_state should read 75% from daily_records
-            state = _build_water_state(s, "31027", "2026-08-06")
+            state, _reason = _build_water_state(s, "31027", "2026-08-06")
             assert state is not None
             # soil_pct should be based on 75% (not the 60% default)
             # SW = 0.75 * AW, after one day stepping: check it's > 60% default
@@ -548,8 +1081,8 @@ class TestSpinupIntegration:
         """When daily_records is empty, _build_water_state defaults to 60%."""
         from sqlalchemy import text
         from sqlalchemy.orm import Session
+
         from app.db.connection import engine
-        from app.advisor.service import _build_water_state
 
         with Session(engine) as s:
             # Ensure no daily_records for this county
@@ -559,9 +1092,149 @@ class TestSpinupIntegration:
             ))
             s.commit()
 
-            state = _build_water_state(s, "31027", "2026-08-06")
+            state, _reason = _build_water_state(s, "31027", "2026-08-06")
             assert state is not None
             # Without daily_records, starts at 60% default, then one day stepping
             # The result should be <= 60% (since ETc consumes water)
             # But it depends on forecast — just verify it's a valid value
             assert 0 <= state["soil_pct"] <= 100
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# TASK 5 — generate_all integration (local Postgres)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestGenerateAllIntegration:
+    """Integration test: generate_all against local Postgres for a seeded NY county."""
+
+    def test_generate_all_produces_advisories(self):
+        """Run generate_all(date) with seeded NY county data; expect >0 advisories, 0 errors."""
+        from sqlalchemy import text
+        from sqlalchemy.orm import Session
+
+        from app.db.connection import engine
+
+        test_date = "2026-08-15"
+
+        try:
+            with Session(engine) as session:
+                ny_counties = session.execute(text(
+                    "SELECT fips, latitude, longitude FROM counties WHERE state = 'NY' ORDER BY fips"
+                )).fetchall()
+                if not ny_counties:
+                    pytest.skip("No NY counties seeded")
+
+                test_fips = ny_counties[0][0]  # Use first NY county (never hardcode 36001)
+
+                # Seed corn crop (must exist)
+                session.execute(text(
+                    "INSERT INTO crops (id, base_temp_f, root_depth_in, mad_fraction, "
+                    "kc_initial, kc_mid, kc_end, gdd_total, stage_days) "
+                    "VALUES ('corn', 50, 36, 0.50, 0.30, 1.15, 0.65, 2700, '30,40,50,25') "
+                    "ON CONFLICT (id) DO UPDATE SET "
+                    "base_temp_f=50, root_depth_in=36, mad_fraction=0.50, "
+                    "kc_initial=0.30, kc_mid=1.15, kc_end=0.65, gdd_total=2700, "
+                    "stage_days='30,40,50,25'"
+                ))
+
+                # Seed soils for all NY counties
+                for fips, _lat, _lon in ny_counties:
+                    session.execute(text(
+                        "INSERT INTO soils (county_fips, soil_type, awc) "
+                        "VALUES (:f, 'SILT LOAM', 0.20) "
+                        "ON CONFLICT (county_fips) DO NOTHING"
+                    ), {"f": fips})
+
+                # Seed daily_historical — bulk insert full season for all NY counties
+                # Skip counties that already have enough rows.
+                from datetime import date, timedelta
+                for fips, _lat, _lon in ny_counties:
+                    existing = session.execute(text(
+                        "SELECT COUNT(*) FROM daily_historical WHERE county_fips = :f "
+                        "AND obs_date >= '2026-05-15' AND obs_date <= '2026-08-14'"
+                    ), {"f": fips}).fetchone()[0]
+                    if existing >= 90:
+                        continue
+                    session.execute(text(
+                        "DELETE FROM daily_historical WHERE county_fips = :f "
+                        "AND obs_date >= '2026-05-15' AND obs_date <= '2026-08-14'"
+                    ), {"f": fips})
+                    cur = date(2026, 5, 15)
+                    end = date(2026, 8, 14)
+                    rows = []
+                    while cur <= end:
+                        rows.append({"f": fips, "d": cur.isoformat()})
+                        cur += timedelta(days=1)
+                    session.execute(text(
+                        "INSERT INTO daily_historical "
+                        "(county_fips, obs_date, tmax_f, tmin_f, precip_in) "
+                        "VALUES (:f, :d, 82.0, 62.0, 0.0)"
+                    ), rows)
+
+                # Seed daily_forecast for all NY counties
+                for fips, _lat, _lon in ny_counties:
+                    session.execute(text(
+                        "DELETE FROM daily_forecast WHERE county_fips = :f "
+                        "AND forecast_date >= '2026-08-15'"
+                    ), {"f": fips})
+                    fc_rows = []
+                    for day in range(7):
+                        fc_rows.append({"f": fips, "d": f"2026-08-{15 + day:02d}"})
+                    session.execute(text(
+                        "INSERT INTO daily_forecast "
+                        "(county_fips, forecast_date, tmax_f, tmin_f, precip_in, et0_in, source) "
+                        "VALUES (:f, :d, 85.0, 65.0, 0.0, 0.25, 'test_seed')"
+                    ), fc_rows)
+
+                session.commit()
+
+            # Run generate_all
+            results = generate_all(test_date)
+
+            # Assertions
+            assert results["counties_processed"] > 0, (
+                f"Expected counties_processed > 0, got {results['counties_processed']}"
+            )
+            assert results["advisories_generated"] > 0, (
+                f"Expected advisories_generated > 0, got {results['advisories_generated']}"
+            )
+            assert results["errors"] == 0, (
+                f"Expected 0 errors, got {results['errors']}"
+            )
+
+            # Verify advisory stored in DB
+            with Session(engine) as session:
+                stored = session.execute(text(
+                    "SELECT id, county_fips, type, severity, headline "
+                    "FROM advisories WHERE county_fips = :f "
+                    "ORDER BY generated_at DESC LIMIT 1"
+                ), {"f": test_fips}).fetchone()
+                assert stored is not None, (
+                    f"Expected advisory row for {test_fips} on {test_date}"
+                )
+                assert stored[1] == test_fips
+                assert stored[2] == "water_budget"
+                assert stored[3] in ("info", "watch", "action")
+
+        finally:
+            # Cleanup seeded test data — all NY counties
+            with Session(engine) as session:
+                session.execute(text(
+                    "DELETE FROM advisories WHERE county_fips IN "
+                    "(SELECT fips FROM counties WHERE state = 'NY') "
+                    "AND source_data->>'source' = 'test_seed'"
+                ))
+                session.execute(text(
+                    "DELETE FROM daily_forecast WHERE county_fips IN "
+                    "(SELECT fips FROM counties WHERE state = 'NY')"
+                ))
+                session.execute(text(
+                    "DELETE FROM daily_historical WHERE county_fips IN "
+                    "(SELECT fips FROM counties WHERE state = 'NY') "
+                    "AND obs_date >= '2026-05-15' AND obs_date <= '2026-08-14'"
+                ))
+                # NOTE: soils are intentionally NOT deleted here. A value-matched
+                # DELETE ('SILT LOAM' / 0.20) removed real rows instead of
+                # restoring them — see the _preserve_reference_data fixture, which
+                # snapshots and restores soils and crops for the whole module.
+                session.commit()

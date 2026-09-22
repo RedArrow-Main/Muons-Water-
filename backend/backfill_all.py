@@ -3,9 +3,11 @@
 This makes every county show unique, real data instead of defaults.
 """
 import time
+
 import httpx
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
 from app.db.connection import engine
 from app.engine.spinup import spinup_soil_moisture
 
@@ -63,7 +65,7 @@ def run_backfill_all():
             "SELECT base_temp_f, root_depth_in, mad_fraction, kc_mid "
             "FROM crops WHERE id = 'corn'"
         )).fetchone()
-        base_temp, root_depth, mad, kc_mid = crop
+        _base_temp, root_depth, _mad, _kc_mid = crop
 
         hist_stmt = text("""
             INSERT INTO daily_historical (county_fips, obs_date, tmax_f, tmin_f, precip_in, et0_in)
@@ -131,7 +133,7 @@ def run_backfill_all():
                     hist_ok += 1
                     time.sleep(0.2)
 
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — report operation failure at this boundary
                     hist_fail += 1
                     if hist_fail <= 3:
                         print(f"  HIST FAIL {fips} {name}: {str(e)[:60]}")
@@ -159,8 +161,8 @@ def run_backfill_all():
 
                 # 4. Run spin-up
                 try:
-                    sw, depletion = spinup_soil_moisture(
-                        weather_series=weather_series, aw=aw, kc=kc_mid,
+                    sw, _depletion = spinup_soil_moisture(
+                        weather_series=weather_series, aw=aw, crop_id="corn",
                     )
                     soil_pct = sw / aw * 100 if aw > 0 else 0.0
 
@@ -174,12 +176,12 @@ def run_backfill_all():
                     session.commit()
                     spinup_ok += 1
 
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — report operation failure at this boundary
                     spinup_fail += 1
                     if spinup_fail <= 3:
                         print(f"  SPINUP FAIL {fips} {name}: {str(e)[:60]}")
 
-        print(f"\nBackfill complete:")
+        print("\nBackfill complete:")
         print(f"  Soil updated: {soil_ok}")
         print(f"  Historical OK: {hist_ok}, FAIL: {hist_fail}")
         print(f"  Spin-up OK: {spinup_ok}, FAIL: {spinup_fail}")

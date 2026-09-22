@@ -7,7 +7,6 @@ Sources:
 """
 from __future__ import annotations
 
-
 # Frost date normals by state (Julian day for 10th/50th/90th percentile kill)
 _STATE_FROST_DEFAULTS = {
     "AK": (200, 230, 260),
@@ -3453,6 +3452,6 @@ def get_soil_defaults() -> list[dict]:
 if __name__ == "__main__":
     counties = get_counties()
     soils = get_soil_defaults()
-    states = set(c["state"] for c in counties)
-    print("Generated %d counties across %d states" % (len(counties), len(states)))
+    states = {c["state"] for c in counties}
+    print(f"Generated {len(counties)} counties across {len(states)} states")
     print("States:", sorted(states))

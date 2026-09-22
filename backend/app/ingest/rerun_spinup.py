@@ -44,8 +44,8 @@ def rerun_spinup() -> None:
                 for r in hist
             ]
 
-            sw, depletion = spinup_soil_moisture(
-                weather_series=weather, aw=aw, kc=kc,
+            sw, _depletion = spinup_soil_moisture(
+                weather_series=weather, aw=aw, crop_id="corn",
             )
             soil_pct = sw / aw * 100 if aw > 0 else 0.0
 

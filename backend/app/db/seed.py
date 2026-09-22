@@ -39,16 +39,22 @@ COUNTIES = [
 CROPS = [
     # id, base_f, gdd, root_depth_in, mad, kc_ini, kc_mid, kc_end,
     # stage_days: initial, development, mid, late
-    ("corn",      50, 2700, 36, 0.50, 0.30, 1.15, 0.90, "25,35,45,25"),
-    ("soy",       50, 2500, 24, 0.50, 0.40, 1.10, 0.80, "20,30,40,25"),
-    ("alfalfa",   41, 1800, 30, 0.50, 0.40, 1.05, 0.85, "15,25,30,20"),
+    # corn kc_end 0.60 = FAO-56 Table 12, maize (grain) harvested at HIGH
+    # MOISTURE. 0.35 is the dry-harvest row; ~1.05-1.15 is silage cut green;
+    # 1.05 is sweet corn. The previous 0.90 matched none of these — see
+    # DECISIONS.md D-010.
+    # kc_mid corn 1.20 / soy 1.15 / alfalfa 0.95 = FAO-56 Table 12 (D-014).
+    # Corn's former 1.15 was sweet corn's Kc_mid, not field maize's.
+    ("corn",      50, 2700, 36, 0.50, 0.30, 1.20, 0.60, "25,35,45,25"),
+    ("soy",       50, 2500, 24, 0.50, 0.40, 1.15, 0.50, "20,30,40,25"),
+    ("alfalfa",   41, 1800, 30, 0.50, 0.40, 0.95, 0.90, "15,25,30,20"),
     ("cover",     40, 1200, 10, 0.45, 0.30, 0.60, 0.55, "15,20,30,40"),
-    ("potatoes",  45, 1600, 30, 0.45, 0.45, 1.15, 0.75, "25,30,35,25"),
-    ("sunflower", 46, 2000, 50, 0.50, 0.35, 1.10, 0.55, "25,35,40,30"),
+    ("potatoes",  45, 1600, 24, 0.35, 0.50, 1.15, 0.75, "25,30,35,25"),
+    ("sunflower", 46, 2000, 50, 0.50, 0.35, 1.10, 0.35, "25,35,40,30"),
     # FAO-56 reference values — pending agronomist sign-off
     ("cabbage",   45, 2000, 18, 0.45, 0.70, 1.05, 0.95, "20,25,35,25"),
-    ("onions",    40, 1800, 14, 0.50, 0.70, 1.05, 0.75, "15,25,35,25"),
-    ("sweet corn",50, 2200, 24, 0.50, 0.30, 1.15, 0.90, "20,30,40,25"),
+    ("onions",    40, 1800, 14, 0.30, 0.70, 1.05, 0.75, "15,25,35,25"),
+    ("sweet corn",50, 2200, 24, 0.50, 0.30, 1.15, 1.05, "20,30,40,25"),
 ]
 
 # county_fips, soil_type, awc (available water capacity, in/in)

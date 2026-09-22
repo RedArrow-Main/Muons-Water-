@@ -9,7 +9,10 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 load_dotenv()  # load .env before reading env vars
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL",  # test runner sets this to isolate from dev/prod
+    os.environ["DATABASE_URL"],
+)
 
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)

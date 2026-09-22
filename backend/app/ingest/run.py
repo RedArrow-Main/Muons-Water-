@@ -8,18 +8,18 @@ from __future__ import annotations
 
 import argparse
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.connection import SessionLocal
+from app.ingest.counties_data import get_counties
 from app.ingest.county_loader import load_counties
 from app.ingest.noaa_nws import fetch_nws_forecast
-from app.ingest.open_meteo import fetch_history, fetch_forecast
-from app.ingest.usdm import fetch_drought
+from app.ingest.open_meteo import fetch_forecast, fetch_history
 from app.ingest.ssurgo import load_soils
-from app.ingest.counties_data import get_counties
-from sqlalchemy import text
+from app.ingest.usdm import fetch_drought
 
 
 def _log_run(session: Session, source: str, started_at: datetime, rows: int, status: str, error: str | None = None):
@@ -31,7 +31,7 @@ def _log_run(session: Session, source: str, started_at: datetime, rows: int, sta
         {
             "source": source,
             "started": started_at,
-            "finished": datetime.utcnow(),
+            "finished": datetime.now(timezone.utc),
             "rows": rows,
             "status": status,
             "error": error,
@@ -53,7 +53,7 @@ def _run_nws(session: Session, counties: list[dict]) -> int:
     for county in counties:
         try:
             total += fetch_nws_forecast(session, county)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — report operation failure at this boundary
             print(f"  NWS error for {county['fips']}: {exc}")
     return total
 
@@ -63,7 +63,7 @@ def _run_open_meteo_history(session: Session, counties: list[dict], from_date: s
     for county in counties:
         try:
             total += fetch_history(session, county, from_date, to_date)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — report operation failure at this boundary
             print(f"  Open-Meteo history error for {county['fips']}: {exc}")
     return total
 
@@ -73,7 +73,7 @@ def _run_open_meteo_forecast(session: Session, counties: list[dict]) -> int:
     for county in counties:
         try:
             total += fetch_forecast(session, county)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — report operation failure at this boundary
             print(f"  Open-Meteo forecast error for {county['fips']}: {exc}")
     return total
 
@@ -83,7 +83,7 @@ def _run_usdm(session: Session, counties: list[dict], from_date: str, to_date: s
     for county in counties:
         try:
             total += fetch_drought(session, county, from_date, to_date)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — report operation failure at this boundary
             print(f"  USDM error for {county['fips']}: {exc}")
     return total
 
@@ -99,14 +99,14 @@ def run(source: str | None = None, date: str | None = None,
     try:
         connectors = ["county_loader", "noaa_nws", "open_meteo", "usdm", "ssurgo"] if source == "all" or source is None else [source]
 
-        run_date = date or to_date or datetime.utcnow().strftime("%Y-%m-%d")
+        run_date = date or to_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         hist_from = from_date or "2024-01-01"
         hist_to = run_date
 
         print(f"Pipeline run: date={run_date}, from={hist_from}, to={hist_to}, source={source}")
 
         for conn_name in connectors:
-            started = datetime.utcnow()
+            started = datetime.now(timezone.utc)
             rows = 0
             status = "ok"
             error_msg = None
@@ -126,7 +126,7 @@ def run(source: str | None = None, date: str | None = None,
                 else:
                     print(f"  Unknown source: {conn_name}")
                     continue
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — report operation failure at this boundary
                 status = "error"
                 error_msg = str(exc)
                 traceback.print_exc()

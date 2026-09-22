@@ -1,7 +1,7 @@
 """Fetch Open-Meteo ET0 forecast for all counties missing it."""
-import time
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
 from app.db.connection import engine
 from app.ingest.open_meteo import fetch_forecast
 
@@ -23,7 +23,7 @@ with Session(engine) as s:
         try:
             fetch_forecast(s, county)
             ok += 1
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — report operation failure at this boundary
             fail += 1
             if fail <= 3:
                 print(f"  FAIL {fips} {name}: {str(e)[:60]}")

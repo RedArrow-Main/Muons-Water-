@@ -1,18 +1,18 @@
 """Tests for SMS Gateway — formatting, rate limiting, outbox, dry-run send."""
-import pytest
+import json
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.sms.gateway import (
-    format_advisory_sms,
-    check_rate_limit,
-    log_outbox,
-    send_sms,
-    send_batch_sms,
-    TwilioConfig,
-)
 from app.db.connection import engine
-
+from app.sms.gateway import (
+    TwilioConfig,
+    check_rate_limit,
+    format_advisory_sms,
+    log_outbox,
+    send_batch_sms,
+    send_sms,
+)
 
 # ---------------------------------------------------------------------------
 # Formatter tests
@@ -163,4 +163,76 @@ def test_send_batch_sms_dry_run():
         assert results["rate_limited"] == 0
         assert results["failed"] == 0
         s.execute(text("DELETE FROM outbox WHERE county_fips IN ('BAT01','BAT02')"))
+        s.commit()
+
+
+# ---------------------------------------------------------------------------
+# _send_sms_advisories integration test (TASK 1 — exercises the nightly.py
+# query that previously referenced nonexistent `decision` and `date` columns)
+# ---------------------------------------------------------------------------
+
+def test_send_sms_advisories_extracts_decision_from_source_data():
+    """_send_sms_advisories must read decision from source_data JSON, not a
+    nonexistent `decision` column.  Regression test for the bug fixed in
+    nightly.py (column `decision` and `date` did not exist on `advisories`)."""
+    from app.nightly import _send_sms_advisories
+
+    test_fips = "36001"  # Albany, NY — exists in counties table
+    test_phone = "+15559990000"
+    # A date the nightly pipeline has never written, so the SELECT below can only
+    # match the row this test inserts.
+    today = "2026-01-15"
+    unique_hash = "testhash_sms_regression"
+
+    with Session(engine) as s:
+        # Clean up
+        s.execute(text("DELETE FROM outbox WHERE county_fips = :f"), {"f": test_fips})
+        s.execute(text("DELETE FROM subscribers WHERE county_fips = :f AND phone = :p"),
+                  {"f": test_fips, "p": test_phone})
+        s.execute(text("DELETE FROM advisories WHERE hash = :h"), {"h": unique_hash})
+        s.execute(text(
+            "DELETE FROM advisories WHERE county_fips = :f AND DATE(generated_at) = :d"
+        ), {"f": test_fips, "d": today})
+        s.commit()
+
+        # Insert an advisory with source_data containing 'decision'
+        source_data = json.dumps({
+            "county_name": "Albany", "county_state": "NY",
+            "crop_id": "corn", "decision": "IRRIGATE",
+            "gdd": 30.0, "etc_in": 0.32, "soil_pct": 55.0,
+            "depletion": 0.55, "forecast_rain_7d": 0.0,
+        })
+        s.execute(text(
+            "INSERT INTO advisories "
+            "(county_fips, crop_id, type, severity, headline, body, "
+            " source_data, hash, prev_hash, status, generated_at) "
+            "VALUES (:f, 'corn', 'water_budget', 'action', 'TEST', 'body', "
+            "        :sd, :h, NULL, 'active', :gen)"
+        ), {"f": test_fips, "sd": source_data, "h": unique_hash,
+            "gen": f"{today} 12:00:00+00"})
+
+        # Insert a subscriber
+        s.execute(text(
+            "INSERT INTO subscribers (county_fips, phone, active) "
+            "VALUES (:f, :p, true)"
+        ), {"f": test_fips, "p": test_phone})
+        s.commit()
+
+        # Call _send_sms_advisories — must not crash
+        result = _send_sms_advisories(s, today)
+
+        # Verify SMS was sent (dry-run)
+        assert result["sms_sent"] >= 1
+        outbox = s.execute(text(
+            "SELECT body FROM outbox WHERE county_fips = :f "
+            "ORDER BY sent_at DESC LIMIT 1"
+        ), {"f": test_fips}).fetchone()
+        assert outbox is not None
+        assert "IRRIGATE" in outbox[0]
+
+        # Clean up
+        s.execute(text("DELETE FROM outbox WHERE county_fips = :f"), {"f": test_fips})
+        s.execute(text("DELETE FROM subscribers WHERE county_fips = :f AND phone = :p"),
+                  {"f": test_fips, "p": test_phone})
+        s.execute(text("DELETE FROM advisories WHERE hash = :h"), {"h": unique_hash})
         s.commit()

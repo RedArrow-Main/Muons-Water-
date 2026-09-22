@@ -5,9 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 
-from app.db.connection import SessionLocal
-from app.dashboard.routes import router as dashboard_router
 from app.auth.routes import router as auth_router
+from app.dashboard.routes import router as dashboard_router
+from app.db.connection import SessionLocal
 from app.farm.routes import router as farm_router
 
 app = FastAPI(title="FurrowCast API")
@@ -40,7 +40,7 @@ def health():
         db.execute(text("SELECT count(*) FROM counties"))
         db.close()
         return {"ok": True, "db": "up"}
-    except Exception:
+    except Exception:  # noqa: BLE001 — report operation failure at this boundary
         return {"ok": False, "db": "down"}
 
 

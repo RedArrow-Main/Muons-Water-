@@ -6,12 +6,12 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
-import sys
 import time
 import urllib.request
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
 from app.db.connection import engine
 
 INSCOPE_STATES = {"Nebraska": "NE", "Iowa": "IA", "Kansas": "KS"}
@@ -33,15 +33,10 @@ SOIL_AWC_BY_STATE = {
 
 def fetch_counties_from_census() -> list[dict]:
     """Fetch all counties for NE, IA, KS from Census geocoder."""
-    url = (
-        "https://geocoding.geo.census.gov/geocoder/geographies/address"
-        "?benchmark=Public_AR_Current&vintage=Current_Current"
-        "&format=json&layers=05"
-    )
 
     # Use Census TIGER/Line county boundaries instead
     counties = []
-    for state_name, state_abbr in INSCOPE_STATES.items():
+    for state_abbr in INSCOPE_STATES.values():
         fips_prefix = {"NE": "31", "IA": "19", "KS": "20"}[state_abbr]
         api_url = (
             f"https://api.census.gov/data/2020/dec/pl"
@@ -64,7 +59,7 @@ def fetch_counties_from_census() -> list[dict]:
                 })
             print(f"  Fetched {len(counties)} counties for {state_abbr}")
             time.sleep(0.5)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — report operation failure at this boundary
             print(f"  Census API failed for {state_abbr}: {e}")
             return []
 
@@ -73,13 +68,8 @@ def fetch_counties_from_census() -> list[dict]:
 
 def get_coords_from_census(fips: str) -> tuple[float, float]:
     """Get approximate lat/lon from Census geocoder for a county centroid."""
-    state_fips = fips[:2]
-    county_fips = fips[2:]
-    url = (
-        f"https://geocoding.geo.census.gov/geocoder/geographies/address"
-        f"?benchmark=Public_AR_Current&vintage=Current_Current"
-        f"&format=json&street=&city=&state=&zip="
-    )
+    fips[:2]
+    fips[2:]
     # Fallback: use state-level centroids
     state_centers = {
         "31": (41.5, -99.8),   # Nebraska

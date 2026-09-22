@@ -29,31 +29,22 @@ def _make_day(tmax: float, tmin: float, precip: float = 0.0, et0: float = 0.28) 
 #   Grain-fill  0.62–0.90  weight 1.0  →  1674–2430 GDD
 #   Maturity    0.90–1.00  weight 0.3  →  2430–2700 GDD
 #
-# Synthetic series: 3 days of identical weather.
-# Day 1: tmax=89°F, tmin=71°F → avg=80 → GDD=30, ETc=0.322 in
-#         SW: 60% of 7.2 = 4.32 → 4.32−0.322 = 3.998 → deficit 0
-# Day 2: same → SW 3.998 → 3.676 → deficit 0
-# Day 3: same → SW 3.676 → 3.354 → deficit 0
-# No deficit yet (depletion never hits 0.50).
+# Kc curve (FAO-56): gdd_frac < 0.10 → kc_initial=0.30; 0.10–0.50 ramp
+# to kc_mid=1.20; 0.50–0.62 → kc_mid; etc.
 #
-# To force a deficit, start with very low SW so the crop can't get water:
-# start_sw_frac = 0.0 → SW = 0 on day 0.
-# Day 1: SW=0, ETc=0.322 → potential = -0.322 → deficit = 0.322, SW = 0
-# Day 2: same → deficit 0.322
-# Day 3: same → deficit 0.322
-# cumulative_deficit = 0.966
+# --- 3-day vegetative deficit (start_sw_frac=0.0, SW=0) ---
+# gdd_frac stays < 0.10 → Kc = 0.30 (kc_initial)
+# ETc = 0.30 × 0.28 = 0.084 in/day
+# cumulative_deficit = 3 × 0.084 = 0.252
+# stage_weighted_deficit = 3 × 0.084 × 0.4 = 0.1008
 #
-# Stage weighting:
-#   After 3 days at 30 GDD/day = 90 GDD cumulative → frac = 90/2700 = 0.0333
-#   All 3 days fall in Vegetative band (0.00–0.50, weight 0.4)
-#   stage_weighted_deficit = 0.322 × 0.4 × 3 = 0.3864
-#
-# Now force deficit INSIDE pollination (gdd_frac 0.50–0.62 = 1350–1674 GDD):
-# We need 1350 GDD before pollination. At 30 GDD/day → 45 vegetative days.
-#   Vegetative: 45 days × 0.322 deficit × 0.4 = 5.796
-#   Pollination: 1 day × 0.322 deficit × 1.5 = 0.483
-#   Total season_weighted = 5.796 + 0.483 = 6.279
-#   Total cumulative_deficit = 46 × 0.322 = 14.812
+# --- 46-day pollination deficit (45 veg + 1 pollination, start_sw_frac=0.0) ---
+# gdd_frac runs 0.011 → 0.511 across 46 days (Kc varies per day)
+# Days 0–8: gdd_frac < 0.10 → Kc=0.30 → ETc=0.084
+# Days 9–43: Kc ramps 0.30 → 1.20 (gdd_frac 0.11 → 0.49)
+# Days 44–45: gdd_frac ≥ 0.50 → Kc=1.20 → ETc=0.336
+# Hand sum of daily deficits (SW=0): cumulative_deficit = 8.778
+# Stage-weighted: 44 veg days × avg × 0.4 + 2 poll days × 0.336 × 1.5 = 4.2504
 
 
 def test_hand_computed_vegetative_deficit():
@@ -63,9 +54,10 @@ def test_hand_computed_vegetative_deficit():
     result = simulate_season_stage_weighted(
         series, "corn", soil_awc=0.20, start_sw_frac=0.0
     )
-    # Each day: deficit = 0.322 (ETc = 1.15 × 0.28)
-    assert result["cumulative_deficit"] == pytest.approx(0.966, abs=0.001)
-    assert result["stage_weighted_deficit"] == pytest.approx(0.3864, abs=0.001)
+    # Each day: gdd_frac=0.033 (<0.10) → Kc = kc_initial = 0.30
+    # deficit = ETc = 0.30 × 0.28 = 0.084
+    assert result["cumulative_deficit"] == pytest.approx(0.252, abs=0.001)
+    assert result["stage_weighted_deficit"] == pytest.approx(0.1008, abs=0.001)
 
 
 def test_hand_computed_pollination_deficit():
@@ -80,12 +72,13 @@ def test_hand_computed_pollination_deficit():
         series, "corn", soil_awc=0.20, start_sw_frac=0.0
     )
 
-    # Daily deficit = 0.322 in each day
-    daily_def = 0.322  # 1.15 × 0.28
-    n_days = 46
-    expected_cumulative = daily_def * n_days
-    # 44 vegetative days (idx 0–43) × 0.4 + 2 pollination days (idx 44–45) × 1.5
-    expected_weighted = (44 * daily_def * 0.4) + (2 * daily_def * 1.5)
+    # Kc varies by GDD fraction (not constant 1.20):
+    #   days 0-8: gdd_frac < 0.10 → Kc = kc_initial = 0.30 → ETc = 0.084
+    #   days 9-43: Kc ramps 0.30 → 1.20 (gdd_frac 0.11 → 0.49)
+    #   days 44-45: gdd_frac >= 0.50 → Kc = kc_mid = 1.20 → ETc = 0.336
+    expected_cumulative = 8.778
+    # Stage-weighted: 44 vegetative days (idx 0–43) × 0.4 + 2 pollination days (idx 44–45) × 1.5
+    expected_weighted = 4.2504
 
     assert result["cumulative_deficit"] == pytest.approx(expected_cumulative, abs=0.01)
     assert result["stage_weighted_deficit"] == pytest.approx(expected_weighted, abs=0.01)
@@ -257,7 +250,13 @@ def test_crop_params_has_all_nine():
 
 
 def test_crop_params_values_cabbage():
-    """Cabbage parameters match FAO-56 reference values."""
+    """Cabbage: Kc + p match FAO-56 Table 12 / 22 exactly.
+
+    root_depth 18 in sits just BELOW FAO-56 Table 22's Zr range (0.5-0.8 m =
+    20-31 in). Zr is the MAXIMUM effective depth under ideal conditions; a
+    shallower effective zone is deliberate for NY and errs conservative
+    (smaller AW -> higher depletion -> irrigates sooner). See D-013.
+    """
     from app.engine.water_balance import CROP_PARAMS
     base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["cabbage"]
     assert base_temp == 45.0
@@ -270,12 +269,12 @@ def test_crop_params_values_cabbage():
 
 
 def test_crop_params_values_onions():
-    """Onions parameters match FAO-56 reference values."""
+    """Onions: Kc from FAO-56 Table 12, p from Table 22 (D-013)."""
     from app.engine.water_balance import CROP_PARAMS
     base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["onions"]
     assert base_temp == 40.0
     assert root == 14.0
-    assert mad == 0.50
+    assert mad == 0.30  # FAO-56 Table 22 p = 0.30 (onion, dry) — was 0.50, D-013
     assert kc_ini == 0.70
     assert kc_mid == 1.05
     assert kc_end == 0.75
@@ -283,41 +282,47 @@ def test_crop_params_values_onions():
 
 
 def test_crop_params_values_sweet_corn():
-    """Sweet corn parameters match FAO-56 reference values."""
+    """Sweet corn: FAO-56 Table 12 sweet maize, fresh harvest (D-013)."""
     from app.engine.water_balance import CROP_PARAMS
     base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["sweet corn"]
     assert base_temp == 50.0
     assert root == 24.0
     assert mad == 0.50
     assert kc_ini == 0.30
+    # kc_mid 1.15 IS FAO-56's sweet-maize value (field maize is 1.20)
     assert kc_mid == 1.15
-    assert kc_end == 0.90
+    assert kc_end == 1.05  # FAO-56 Table 12 sweet maize, fresh harvest — was 0.90, D-013
     assert gdd == 2200
 
 
 def test_crop_params_values_potatoes():
-    """Potatoes parameters match FAO-56 reference values."""
+    """Potatoes: Kc from Table 12, p and Zr cap from Table 22 (D-013)."""
     from app.engine.water_balance import CROP_PARAMS
     base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["potatoes"]
     assert base_temp == 45.0
-    assert root == 30.0
-    assert mad == 0.45
-    assert kc_ini == 0.45
+    # Zr max is 0.6 m = 23.6 in; 30 in EXCEEDED it, inflating AW ~25% and so
+    # understating depletion on a shallow-rooted, stress-sensitive crop. D-013.
+    assert root == 24.0
+    assert mad == 0.35   # FAO-56 Table 22 p = 0.35 — was 0.45, D-013
+    assert kc_ini == 0.50  # FAO-56 Table 12 potato — was 0.45, D-013
     assert kc_mid == 1.15
     assert kc_end == 0.75
     assert gdd == 1600
 
 
 def test_crop_params_values_sunflower():
-    """Sunflower parameters match FAO-56 reference values."""
+    """Sunflower: FAO-56 Table 12 / 22, with p deviation noted (D-013)."""
     from app.engine.water_balance import CROP_PARAMS
     base_temp, root, mad, kc_ini, kc_mid, kc_end, gdd = CROP_PARAMS["sunflower"]
     assert base_temp == 46.0
     assert root == 50.0
+    # p 0.50 vs FAO-56's 0.45 — ours is slightly LESS conservative; flagged in
+    # D-013, not changed (sunflower is drought-tolerant).
     assert mad == 0.50
     assert kc_ini == 0.35
+    # FAO-56 prints kc_mid as a 1.0-1.15 range; 1.10 sits inside it.
     assert kc_mid == 1.10
-    assert kc_end == 0.55
+    assert kc_end == 0.35  # FAO-56 Table 12 sunflower — was 0.55, D-013
     assert gdd == 2000
 
 
@@ -329,8 +334,9 @@ def test_simulate_season_sweet_corn():
     assert result["days"] == 3
     # GDD: avg=(95+75)/2=85, GDD=85-50=35 per day → 105 total
     assert result["total_gdd"] == pytest.approx(105.0, abs=0.1)
-    # ETc: kc_mid=1.15 × 0.28 = 0.322 per day → 0.966 total
-    assert result["total_etc"] == pytest.approx(0.966, abs=0.01)
+    # gdd_frac=105/2200=0.048 (<0.10) → Kc = kc_initial = 0.30
+    # ETc: 0.30 × 0.28 = 0.084 per day → 0.252 total
+    assert result["total_etc"] == pytest.approx(0.252, abs=0.01)
 
 
 def test_simulate_season_potatoes():
@@ -383,28 +389,24 @@ def test_new_crops_deeper_root_holds_more_water():
 
 
 def test_spinup_cabbage_uses_kc_params():
-    """Spin-up for cabbage passes kc_initial/kc_end correctly."""
+    """Spin-up for cabbage uses crop-specific Kc curve via crop_id."""
     from app.engine.spinup import spinup_soil_moisture
     series = [_make_day(95, 75)] * 30
     aw = 18 * 0.20  # cabbage root depth × AWC
     sw, depletion = spinup_soil_moisture(
-        weather_series=series, aw=aw, kc=1.05,
-        base_temp_f=45.0, gdd_to_maturity=2000.0,
-        kc_initial=0.70, kc_end=0.95,
+        weather_series=series, aw=aw, crop_id="cabbage",
     )
     assert 0.0 <= depletion <= 1.0
     assert sw >= 0.0
 
 
 def test_spinup_potatoes_uses_kc_params():
-    """Spin-up for potatoes passes kc_initial/kc_end correctly."""
+    """Spin-up for potatoes uses crop-specific Kc curve via crop_id."""
     from app.engine.spinup import spinup_soil_moisture
     series = [_make_day(89, 71)] * 30
-    aw = 30 * 0.20  # potatoes root depth × AWC
+    aw = 24 * 0.20  # potatoes root depth × AWC (24 in = FAO-56 Zr max, D-013)
     sw, depletion = spinup_soil_moisture(
-        weather_series=series, aw=aw, kc=1.15,
-        base_temp_f=45.0, gdd_to_maturity=1600.0,
-        kc_initial=0.45, kc_end=0.75,
+        weather_series=series, aw=aw, crop_id="potatoes",
     )
     assert 0.0 <= depletion <= 1.0
     assert sw >= 0.0

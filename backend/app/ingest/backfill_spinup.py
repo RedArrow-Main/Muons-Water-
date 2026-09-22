@@ -8,7 +8,6 @@ Steps:
 """
 from __future__ import annotations
 
-import sys
 import time
 
 import httpx
@@ -58,7 +57,7 @@ def backfill_historical_and_spinup() -> dict:
             "FROM crops WHERE id = 'corn'"
         )).fetchone()
         root_depth = crop[1]
-        kc_mid = crop[3]
+        crop[3]
 
         hist_stmt = text("""
             INSERT INTO daily_historical (county_fips, obs_date, tmax_f, tmin_f, precip_in, et0_in)
@@ -70,7 +69,7 @@ def backfill_historical_and_spinup() -> dict:
 
         with httpx.Client() as client:
             for i, county in enumerate(counties):
-                fips, name, state, lat, lon, soil_type, awc = county
+                fips, _name, _state, lat, lon, soil_type, awc = county
                 aw = root_depth * awc
 
                 if (i + 1) % 50 == 0:
@@ -112,7 +111,7 @@ def backfill_historical_and_spinup() -> dict:
                     results["hist_ok"] += 1
                     time.sleep(0.3)
 
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — report operation failure at this boundary
                     results["hist_fail"] += 1
                     results["errors"].append(f"HIST {fips}: {str(e)[:80]}")
                     continue
@@ -140,10 +139,10 @@ def backfill_historical_and_spinup() -> dict:
                     cell_id = cell[0]
 
                     # 3. Run spin-up (only on the 90-day weather_series we just fetched)
-                    sw, depletion = spinup_soil_moisture(
+                    sw, _depletion = spinup_soil_moisture(
                         weather_series=weather_series,
                         aw=aw,
-                        kc=kc_mid,
+                        crop_id="corn",
                     )
                     soil_pct = sw / aw * 100 if aw > 0 else 0.0
 
@@ -157,11 +156,11 @@ def backfill_historical_and_spinup() -> dict:
                     session.commit()
                     results["spinup_ok"] += 1
 
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — report operation failure at this boundary
                     results["spinup_fail"] += 1
                     results["errors"].append(f"SPINUP {fips}: {str(e)[:80]}")
 
-        print(f"\nBackfill complete:")
+        print("\nBackfill complete:")
         print(f"  Historical OK: {results['hist_ok']}, FAIL: {results['hist_fail']}")
         print(f"  Field cells created: {results['field_cells_created']}")
         print(f"  Spin-up OK: {results['spinup_ok']}, FAIL: {results['spinup_fail']}")
