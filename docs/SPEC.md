@@ -1,7 +1,8 @@
 # MUONS WATER — PRODUCT SPECIFICATION
-<!-- DOC VERSION: v1.37 | LAST UPDATED: 2026-09-14 | OWNER: principal -->
+<!-- DOC VERSION: v1.38 | LAST UPDATED: 2026-09-24 | OWNER: principal -->
 
 ## Changelog (newest first)
+- v1.38 (2026-09-24): A county whose soil spin-up fails is marked `advice_uncertain`, so a transient ingest failure can no longer yield confident advice built on a history that was never rebuilt (D-017).
 - v1.37 (2026-09-14): Dashboard starts in an explicit loading state and restores saved selections before fetching or persisting them, avoiding a false missing-data flash and default-selection requests; filling the returned planting date does not repeat a successful request.
 - v1.36 (2026-09-14): Refine reference typography and spacing; compact header, crop artwork and controls for narrow embedded previews while preserving uncertainty messaging in the green advice card.
 - v1.35 (2026-09-14): Overview follows the supplied photo-led reference with inline field controls, paired crop/advice cards, three metrics, growth/range cards and compact forecast/status panels; range graphics show actual bounds, and field checks link to the saved checklist.
@@ -470,6 +471,12 @@ Missing current-day bounds yield [0,100]% and an explicitly assumed midpoint;
 after applying weather, the bounds determine uncertainty. Stored advisory
 source_data also includes bounds and the uncertainty flag; automated SMS skips
 flagged advice (including uncertainty across the SCHEDULE threshold).
+A county whose soil spin-up FAILED for the run is also flagged, regardless of
+what its bounds compute to. The spin-up is what rebuilds the water balance from
+the planting date; without it the numbers describe an assumed starting state, not
+a replayed one. The flag is set per county by the nightly pipeline, which knows
+which spin-ups failed, and carries the existing consequences: CHECK SOIL in the
+UI and no SMS.
 No field-calibration claim is made. The full-capacity default remains only for
 legacy direct callers of the pure simulator; the nightly path supplies both
 endpoints explicitly. Lint cleanup removes dead bindings, sorts imports, uses

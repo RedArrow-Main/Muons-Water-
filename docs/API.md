@@ -1,5 +1,5 @@
 # API.md - API Contracts
-<!-- DOC VERSION: v1.12 | LAST UPDATED: 2026-09-11 | OWNER: principal -->
+<!-- DOC VERSION: v1.13 | LAST UPDATED: 2026-09-24 | OWNER: principal -->
 
 ## A.4 Contracts
 
@@ -241,6 +241,9 @@ Missing current-day bounds yield [0,100]% and an explicitly assumed midpoint;
 after applying weather, the bounds determine uncertainty. Stored advisory
 source_data also includes bounds and the uncertainty flag; automated SMS skips
 flagged advice (including uncertainty across the SCHEDULE threshold).
+`advice_uncertain` is additionally true when that county's soil spin-up failed
+during the run (v1.13, D-017). The field's type and position are unchanged; only
+the set of conditions producing `true` is wider.
 No field-calibration claim is made. The full-capacity default remains only for
 legacy direct callers of the pure simulator; the nightly path supplies both
 endpoints explicitly. Lint cleanup removes dead bindings, sorts imports, uses

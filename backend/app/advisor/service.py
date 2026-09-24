@@ -6,6 +6,7 @@ no live fetching. generate_all() is called by the nightly cron.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from datetime import date, timedelta
 
 from sqlalchemy import text
@@ -303,20 +304,30 @@ def _build_water_state(
     }, None
 
 
-def generate_all(date: str) -> dict:
+def generate_all(date: str, degraded_fips: Iterable[str] = ()) -> dict:
     """Generate advisories for all counties with sufficient data.
 
     Called by nightly cron after ingestion completes.
     Writes to DB (advisories table).
 
+    Args:
+        date: YYYY-MM-DD
+        degraded_fips: counties whose soil spin-up failed this run. Their
+            soil-water history could not be rebuilt, so whatever the water
+            balance computes for them rests on an assumed starting state.
+            Their advice is forced uncertain, which also withholds it from
+            SMS (D-017).
+
     Returns:
         dict with summary: {counties_processed, advisories_generated, ...}
     """
+    degraded = frozenset(degraded_fips)
     results = {
         "date": date,
         "counties_processed": 0,
         "counties_skipped": 0,
         "advisories_generated": 0,
+        "advisories_degraded": 0,
         "errors": 0,
         "skip_reasons": {},
     }
@@ -336,6 +347,11 @@ def generate_all(date: str) -> dict:
                 prev_hash = prev[0] if prev else None
 
                 water_state, skip_reason = _build_water_state(session, fips, date)
+                if water_state is not None and fips in degraded:
+                    # Spin-up failed for this county — the computed confidence
+                    # describes a soil-water history that was never rebuilt.
+                    water_state["advice_uncertain"] = True
+                    results["advisories_degraded"] += 1
                 if water_state is None:
                     results["counties_processed"] += 1
                     results["counties_skipped"] += 1

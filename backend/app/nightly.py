@@ -234,6 +234,8 @@ def run_pipeline(
         "om_hist_ok": 0, "om_hist_fail": 0,
         "usdm_ok": 0, "usdm_fail": 0,
         "spinup_ok": 0, "spinup_fail": 0,
+        "advisories_degraded": 0,
+        "degraded_counties": [],
         "advisories_generated": 0,
         "advisory_errors": 0,
         "counties_skipped": 0,
@@ -248,6 +250,10 @@ def run_pipeline(
 
     print(f"Nightly pipeline: {len(counties)} in-scope counties, date={run_date}")
 
+    # Counties whose soil-water history could not be rebuilt this run. Their
+    # advice is forced uncertain rather than issued confidently (D-017).
+    degraded: set[str] = set()
+
     for i, county in enumerate(counties):
         weather_series, step = _fetch_one_county_weather(session, county, run_date, HISTORY_LOOKBACK_DAYS)
         for k, v in step.items():
@@ -257,8 +263,11 @@ def run_pipeline(
         if len(weather_series) >= 1:
             ok, _detail = _sync_cell_and_spinup(session, county, weather_series, run_date)
             results["spinup_ok" if ok else "spinup_fail"] += 1
+            if not ok:
+                degraded.add(county["fips"])
         else:
             results["spinup_fail"] += 1
+            degraded.add(county["fips"])
 
         results["counties_processed"] += 1
 
@@ -270,8 +279,10 @@ def run_pipeline(
     results["usdm_fail"] = usdm_fail
 
     # Rebuild advisories (M3 hash chain)
-    adv = generate_all(run_date)
+    adv = generate_all(run_date, degraded_fips=degraded)
     results["advisories_generated"] = adv["advisories_generated"]
+    results["advisories_degraded"] = adv.get("advisories_degraded", 0)
+    results["degraded_counties"] = sorted(degraded)
     results["advisory_errors"] = adv["errors"]
     results["counties_skipped"] = adv.get("counties_skipped", 0)
     results["skip_reasons"] = adv.get("skip_reasons", {})
